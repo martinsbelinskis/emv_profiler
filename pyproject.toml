@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mc_profile_parser"
+version = "0.1.0"
+description = "A CLI tool for parsing MC profiles"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0",
+    "PyQt6>=6.4",
+]
+
+[project.scripts]
+mc-profile-parser = "mc_profile_parser.cli:main"
+mc-profile-parser-gui = "mc_profile_parser.gui:run_gui"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
