@@ -229,6 +229,20 @@ class EnvExportTab(QWidget):
         top.addWidget(save_btn)
         layout.addLayout(top)
 
+        # Filter row
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Filter:"))
+        self._filter_edit = QLineEdit()
+        self._filter_edit.setPlaceholderText("Search variable names, tags, values…")
+        self._filter_edit.textChanged.connect(self._apply_filter)
+        clr_btn = QPushButton("✕")
+        clr_btn.setFixedWidth(28)
+        clr_btn.setToolTip("Clear filter")
+        clr_btn.clicked.connect(self._filter_edit.clear)
+        filter_row.addWidget(self._filter_edit)
+        filter_row.addWidget(clr_btn)
+        layout.addLayout(filter_row)
+
         # Table
         self._table = QTableWidget(len(ENV_TEMPLATE), len(self._ENV_COLS))
         self._table.setHorizontalHeaderLabels(self._ENV_COLS)
@@ -347,6 +361,28 @@ class EnvExportTab(QWidget):
         self._table.blockSignals(False)
         for row_idx in range(len(ENV_TEMPLATE)):
             self._update_preview(row_idx)
+
+    def _apply_filter(self, text: str) -> None:
+        """Show/hide rows whose variable name, tag, or preview match *text*."""
+        low = text.lower()
+        for row_idx in range(self._table.rowCount()):
+            if not low:
+                self._table.setRowHidden(row_idx, False)
+                continue
+            def _cell(col: int) -> str:
+                item = self._table.item(row_idx, col)
+                return item.text().lower() if item else ""
+            combo = self._combos[row_idx] if row_idx < len(self._combos) else None
+            combo_text = combo.currentText().lower() if combo else ""
+            visible = (
+                low in _cell(self._COL_VAR)
+                or low in _cell(self._COL_TAG)
+                or low in _cell(self._COL_TYPE)
+                or low in _cell(self._COL_PREV)
+                or low in _cell(self._COL_OVR)
+                or low in combo_text
+            )
+            self._table.setRowHidden(row_idx, not visible)
 
     def _update_preview(self, row_idx: int) -> None:
         from mc_profile_parser.parser import _hex_to_display
@@ -674,27 +710,23 @@ class _EnvCmpFilterProxy(QSortFilterProxyModel):
         return True
 
 
-# ── Main Window ───────────────────────────────────────────────────────────────
+# ── MC Tab (all Mastercard profile functionality) ─────────────────────────────
 
-class MainWindow(QMainWindow):
-    def __init__(self) -> None:
-        super().__init__()
-        self.setWindowTitle("MC Profile Parser — Comparison Tool")
-        self.resize(1200, 700)
+class MCTab(QWidget):
+    """Self-contained widget containing all Mastercard profile tooling."""
 
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         self._rows_1: list[DataElementRow] = []
         self._rows_2: list[DataElementRow] = []
         self._cmp_rows: list[ComparisonRow] = []
         self._profile_names: list[str] = ["Profile 1", "Profile 2"]
-
         self._build_ui()
 
     # ── UI construction ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        root = QWidget()
-        self.setCentralWidget(root)
-        vbox = QVBoxLayout(root)
+        vbox = QVBoxLayout(self)
         vbox.setSpacing(8)
         vbox.setContentsMargins(10, 10, 10, 10)
 
@@ -734,25 +766,21 @@ class MainWindow(QMainWindow):
 
         vbox.addLayout(grid)
 
-        # Tabs
+        # Inner tabs
         self._tabs = QTabWidget()
-        # Signal connected at end of _build_ui, after all widgets exist
 
-        # --- Profile 1 tab ---
         self._model_1 = _make_model(PROFILE_COLS)
         self._proxy_1 = _simple_proxy(self._model_1)
         self._table_1 = _make_table()
         self._table_1.setModel(self._proxy_1)
         self._tabs.addTab(self._table_1, "Profile 1")
 
-        # --- Profile 2 tab ---
         self._model_2 = _make_model(PROFILE_COLS)
         self._proxy_2 = _simple_proxy(self._model_2)
         self._table_2 = _make_table()
         self._table_2.setModel(self._proxy_2)
         self._tabs.addTab(self._table_2, "Profile 2")
 
-        # --- Comparison tab ---
         self._model_cmp = _make_model(CMP_COLS)
         self._proxy_cmp = _StatusFilterProxy()
         self._proxy_cmp.setSourceModel(self._model_cmp)
@@ -760,44 +788,42 @@ class MainWindow(QMainWindow):
         self._table_cmp.setModel(self._proxy_cmp)
         self._tabs.addTab(self._table_cmp, "⚡ Comparison")
 
-        # --- ENV Export tab ---
         self._env_tab = EnvExportTab()
         self._tabs.addTab(self._env_tab, "⚙ ENV Export")
 
-        # --- ENV Compare tab ---
         self._env_cmp_tab = EnvCompareTab()
         self._tabs.addTab(self._env_cmp_tab, "🔀 ENV Compare")
 
         vbox.addWidget(self._tabs)
 
-        # Bottom bar (hidden on ENV tab which has its own controls)
+        # Bottom bar (hidden on tabs that have their own controls)
         self._bottom_bar = QWidget()
         bottom = QHBoxLayout(self._bottom_bar)
         bottom.setContentsMargins(0, 0, 0, 0)
-
         bottom.addWidget(QLabel("Filter:"))
         self._filter_edit = QLineEdit()
         self._filter_edit.setPlaceholderText("Search across all columns…")
         self._filter_edit.textChanged.connect(self._on_filter_text)
         bottom.addWidget(self._filter_edit)
-
         self._export_btn = QPushButton("Export CSV…")
         self._export_btn.setFixedWidth(120)
         self._export_btn.setEnabled(False)
         self._export_btn.clicked.connect(self._export)
         bottom.addWidget(self._export_btn)
-
         vbox.addWidget(self._bottom_bar)
 
-        # Color filter / legend bar (always visible; filters apply to Comparison tab)
+        # Color filter / legend bar
         self._color_bar, self._filter_btn_group = _make_color_filter_bar()
         self._filter_btn_group.idClicked.connect(self._on_color_filter)
         vbox.addWidget(self._color_bar)
 
-        # Connect tab signal now that all child widgets exist
-        self._tabs.currentChanged.connect(self._on_tab_changed)
+        # Status label
+        self._status_lbl = QLabel("Ready — select two profiles and click Compare.")
+        self._status_lbl.setStyleSheet("color: #555; padding: 2px 0;")
+        vbox.addWidget(self._status_lbl)
 
-        self.statusBar().showMessage("Ready — select two profiles and click Compare.")
+        # Connect tab signal last (after all child widgets exist)
+        self._tabs.currentChanged.connect(self._on_tab_changed)
 
     # ── slots ─────────────────────────────────────────────────────────────
 
@@ -811,7 +837,6 @@ class MainWindow(QMainWindow):
         if path:
             self._path_edit[idx].setText(path)
             self._parse_btn[idx].setEnabled(True)
-            # Stale guard: clear comparison if either path changes
             self._clear_comparison()
 
     def _parse(self, idx: int) -> None:
@@ -819,7 +844,6 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            # include_empty=True so comparison sees all elements
             rows = parse_profile(path, include_empty=True)
         except Exception as exc:
             QMessageBox.critical(self, "Parse error", str(exc))
@@ -836,7 +860,7 @@ class MainWindow(QMainWindow):
         self._export_btn.setEnabled(True)
 
         n_with_value = sum(1 for r in rows if r.value)
-        self.statusBar().showMessage(
+        self._status_lbl.setText(
             f"Profile {idx + 1}: {len(rows)} elements parsed "
             f"({n_with_value} with non-empty value) — {Path(path).name}"
         )
@@ -853,7 +877,7 @@ class MainWindow(QMainWindow):
         counts = {s: 0 for s in STATUS_COLORS}
         for r in self._cmp_rows:
             counts[r.status] = counts.get(r.status, 0) + 1
-        self.statusBar().showMessage(
+        self._status_lbl.setText(
             f"Comparison: {counts['different']} different · "
             f"{counts['only_in_1']} only in P1 · "
             f"{counts['only_in_2']} only in P2 · "
@@ -869,7 +893,6 @@ class MainWindow(QMainWindow):
 
     def _export_profile(self, tab: int) -> None:
         rows = self._rows_1 if tab == TAB_P1 else self._rows_2
-        # Export only non-empty value rows (matching single-profile semantics)
         rows = [r for r in rows if r.value]
         n = tab + 1
         dest = self._save_dialog(f"profile_{n}_export.csv")
@@ -877,22 +900,20 @@ class MainWindow(QMainWindow):
             return
         with open(dest, "w", newline="", encoding="utf-8") as f:
             export_csv(rows, f)
-        self.statusBar().showMessage(f"Exported {len(rows)} rows → {dest}")
+        self._status_lbl.setText(f"Exported {len(rows)} rows → {dest}")
 
     def _export_comparison(self) -> None:
-        # Export whatever is visible through current filter
         proxy = self._proxy_cmp
         visible: list[ComparisonRow] = []
         for proxy_row in range(proxy.rowCount()):
             src_row = proxy.mapToSource(proxy.index(proxy_row, 0)).row()
             visible.append(self._cmp_rows[src_row])
-
         dest = self._save_dialog("comparison_export.csv")
         if not dest:
             return
         with open(dest, "w", newline="", encoding="utf-8") as f:
             export_comparison_csv(visible, f)
-        self.statusBar().showMessage(f"Exported {len(visible)} comparison rows → {dest}")
+        self._status_lbl.setText(f"Exported {len(visible)} comparison rows → {dest}")
 
     def _on_filter_text(self, text: str) -> None:
         tab = self._tabs.currentIndex()
@@ -902,16 +923,14 @@ class MainWindow(QMainWindow):
             self._proxy_2.setFilterFixedString(text)
         elif tab == TAB_CMP:
             self._proxy_cmp.set_text(text)
-        # TAB_ENV has no shared filter
 
     def _on_color_filter(self, btn_id: int) -> None:
-        """Apply the status filter for the clicked color button."""
         _, status, _ = FILTER_BUTTONS[btn_id]
         self._proxy_cmp.set_status(status)
         self._tabs.setCurrentIndex(TAB_CMP)
 
     def _on_tab_changed(self, index: int) -> None:
-        is_own_ui = index in (TAB_ENV, TAB_ENVCMP)  # these tabs have their own toolbars
+        is_own_ui = index in (TAB_ENV, TAB_ENVCMP)
         self._bottom_bar.setVisible(not is_own_ui)
         self._color_bar.setVisible(not is_own_ui)
 
@@ -936,7 +955,6 @@ class MainWindow(QMainWindow):
             model.appendRow(items)
 
     def _fill_comparison_model(self, rows: list[ComparisonRow]) -> None:
-        # Use actual profile filenames as column headers for value_1 / value_2
         headers = [
             self._profile_names[0] if col == "value_1"
             else self._profile_names[1] if col == "value_2"
@@ -970,6 +988,49 @@ class MainWindow(QMainWindow):
                 "CSV files (*.csv);;All files (*)",
             )
         return dest
+
+
+# ── Main Window ───────────────────────────────────────────────────────────────
+
+def _make_placeholder_tab(message: str) -> QWidget:
+    w = QWidget()
+    lbl = QLabel(message)
+    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    lbl.setStyleSheet("font-size: 15px; color: #888; font-style: italic;")
+    vbox = QVBoxLayout(w)
+    vbox.addWidget(lbl)
+    return w
+
+
+class MainWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Card Profile Parser")
+        self.resize(1200, 750)
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        root = QWidget()
+        self.setCentralWidget(root)
+        vbox = QVBoxLayout(root)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(0)
+
+        outer = QTabWidget()
+        outer.setTabPosition(QTabWidget.TabPosition.North)
+        outer.setDocumentMode(True)
+
+        # ── MC tab ──
+        self._mc_tab = MCTab()
+        outer.addTab(self._mc_tab, "🏦  MC")
+
+        # ── VISA tab (RFU placeholder) ──
+        visa_placeholder = _make_placeholder_tab(
+            "VISA profile support — Reserved for Future Use"
+        )
+        outer.addTab(visa_placeholder, "💳  VISA")
+
+        vbox.addWidget(outer)
 
 
 def run_gui() -> None:
