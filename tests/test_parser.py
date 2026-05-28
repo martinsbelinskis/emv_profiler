@@ -8,9 +8,13 @@ import pytest
 from mc_profile_parser.parser import (
     ComparisonRow,
     DataElementRow,
+    EnvCompareRow,
     compare_profiles,
+    compare_env_files,
     export_comparison_csv,
     export_csv,
+    export_env_comparison_csv,
+    parse_env_file,
     parse_profile,
 )
 
@@ -185,3 +189,84 @@ def test_export_comparison_csv():
     assert "different" in text
 
 
+# ── parse_env_file tests ──────────────────────────────────────────────────────
+
+def test_parse_env_double_quoted(tmp_path):
+    env_file = tmp_path / "test.env"
+    env_file.write_text('ApplicationLabel_50_a = "Mastercard"\n', encoding="utf-8")
+    result = parse_env_file(env_file)
+    assert result == {"ApplicationLabel_50_a": "Mastercard"}
+
+
+def test_parse_env_single_quoted(tmp_path):
+    env_file = tmp_path / "test.env"
+    env_file.write_text("KEY = 'value'\n", encoding="utf-8")
+    result = parse_env_file(env_file)
+    assert result["KEY"] == "value"
+
+
+def test_parse_env_unquoted(tmp_path):
+    env_file = tmp_path / "test.env"
+    env_file.write_text("KEY = BLANK\n", encoding="utf-8")
+    result = parse_env_file(env_file)
+    assert result["KEY"] == "BLANK"
+
+
+def test_parse_env_skips_comments(tmp_path):
+    env_file = tmp_path / "test.env"
+    env_file.write_text(
+        "// comment\n"
+        "# hash comment\n"
+        'KEY = "val"\n',
+        encoding="utf-8",
+    )
+    result = parse_env_file(env_file)
+    assert list(result.keys()) == ["KEY"]
+
+
+def test_parse_env_skips_blank_lines(tmp_path):
+    env_file = tmp_path / "test.env"
+    env_file.write_text('\nKEY = "val"\n\n', encoding="utf-8")
+    result = parse_env_file(env_file)
+    assert list(result.keys()) == ["KEY"]
+
+
+# ── compare_env_files tests ───────────────────────────────────────────────────
+
+def test_compare_env_identical():
+    env = {"A": "1", "B": "2"}
+    rows = compare_env_files(env, env)
+    assert all(r.status == "identical" for r in rows)
+
+
+def test_compare_env_different():
+    rows = compare_env_files({"A": "1"}, {"A": "2"})
+    assert rows[0].status == "different"
+    assert rows[0].value_1 == "1"
+    assert rows[0].value_2 == "2"
+
+
+def test_compare_env_only_in_1():
+    rows = compare_env_files({"A": "1", "B": "2"}, {"A": "1"})
+    statuses = {r.variable: r.status for r in rows}
+    assert statuses["B"] == "only_in_1"
+    assert statuses["A"] == "identical"
+
+
+def test_compare_env_only_in_2():
+    rows = compare_env_files({"A": "1"}, {"A": "1", "C": "3"})
+    statuses = {r.variable: r.status for r in rows}
+    assert statuses["C"] == "only_in_2"
+
+
+def test_export_env_comparison_csv():
+    rows = [
+        EnvCompareRow(variable="A", value_1="1", value_2="2", status="different"),
+        EnvCompareRow(variable="B", value_1="X", value_2="",  status="only_in_1"),
+    ]
+    buf = io.StringIO()
+    export_env_comparison_csv(rows, buf)
+    text = buf.getvalue()
+    assert "variable,value_1,value_2,status" in text
+    assert "different" in text
+    assert "only_in_1" in text

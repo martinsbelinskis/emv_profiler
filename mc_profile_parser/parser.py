@@ -2,6 +2,7 @@
 
 import csv
 import io
+import re
 import zipfile
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -217,3 +218,72 @@ def export_env(
             display_val = _hex_to_display(hex_val, entry.type_hint) if hex_val else ""
         safe_val = display_val.replace("\\", "\\\\").replace('"', '\\"')
         output.write(f'{entry.var_name} = "{safe_val}"\n')
+
+
+# ── .env file comparison ──────────────────────────────────────────────────────
+
+@dataclass
+class EnvCompareRow:
+    variable: str
+    value_1: str
+    value_2: str
+    status: str  # identical | different | only_in_1 | only_in_2
+
+
+# Matches: KEY = "VALUE", KEY = 'VALUE', KEY = VALUE  (with optional spaces)
+_ENV_LINE_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)')
+
+
+def parse_env_file(path: str | Path) -> dict[str, str]:
+    """Parse a .env file into {variable_name: value}.
+
+    Handles quoted values (single or double quotes), inline comments starting
+    with ``//`` or ``#`` after the value are stripped.  Lines that start with
+    ``//`` or ``#`` (comments) and blank lines are skipped.
+    """
+    result: dict[str, str] = {}
+    with open(path, encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith("//") or line.startswith("#"):
+                continue
+            m = _ENV_LINE_RE.match(line)
+            if not m:
+                continue
+            key = m.group(1).strip()
+            val = m.group(2).strip()
+            # Strip surrounding quotes
+            if len(val) >= 2 and val[0] in ('"', "'") and val[-1] == val[0]:
+                val = val[1:-1]
+            result[key] = val
+    return result
+
+
+def compare_env_files(
+    env1: dict[str, str],
+    env2: dict[str, str],
+) -> list[EnvCompareRow]:
+    """Compare two parsed .env dicts and return a sorted list of EnvCompareRows."""
+    all_keys = sorted(set(env1) | set(env2), key=str.casefold)
+    rows: list[EnvCompareRow] = []
+    for key in all_keys:
+        v1 = env1.get(key)
+        v2 = env2.get(key)
+        if v1 is None:
+            status = "only_in_2"
+            v1 = ""
+        elif v2 is None:
+            status = "only_in_1"
+            v2 = ""
+        elif v1 == v2:
+            status = "identical"
+        else:
+            status = "different"
+        rows.append(EnvCompareRow(variable=key, value_1=v1, value_2=v2, status=status))
+    return rows
+
+
+def export_env_comparison_csv(rows: list[EnvCompareRow], output: io.TextIOBase) -> None:
+    """Write EnvCompareRow list to a CSV file-like object."""
+    _write_csv(output, [f.name for f in fields(EnvCompareRow)],
+               [{f.name: getattr(r, f.name) for f in fields(EnvCompareRow)} for r in rows])

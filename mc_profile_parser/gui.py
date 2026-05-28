@@ -38,10 +38,14 @@ from mc_profile_parser.env_template import ENV_TEMPLATE, EnvEntry
 from mc_profile_parser.parser import (
     ComparisonRow,
     DataElementRow,
+    EnvCompareRow,
     compare_profiles,
+    compare_env_files,
     export_comparison_csv,
     export_csv,
     export_env,
+    export_env_comparison_csv,
+    parse_env_file,
     parse_profile,
 )
 
@@ -69,6 +73,7 @@ TAB_P1  = 0
 TAB_P2  = 1
 TAB_CMP = 2
 TAB_ENV = 3
+TAB_ENVCMP = 4
 
 _NOT_MAPPED = "(not mapped)"
 
@@ -458,6 +463,217 @@ class EnvExportTab(QWidget):
             QMessageBox.critical(self, "Export error", str(exc))
 
 
+# ── ENV Compare Tab ───────────────────────────────────────────────────────────
+
+class EnvCompareTab(QWidget):
+    """Tab for comparing two .env files with color-coded diff view."""
+
+    _COLS = ["Variable", "File 1 Value", "File 2 Value", "Status"]
+    _COL_VAR, _COL_V1, _COL_V2, _COL_STATUS = range(4)
+    _STATUS_COL_IDX = _COL_STATUS
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._rows: list[EnvCompareRow] = []
+        self._file_names: list[str] = ["File 1", "File 2"]
+        self._build_ui()
+
+    # ── construction ──────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        # File picker rows
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(4)
+        self._path_edit: list[QLineEdit] = []
+        for i in range(2):
+            n = i + 1
+            lbl = QLabel(f".env File {n}:")
+            edit = QLineEdit()
+            edit.setPlaceholderText(f"Select .env file {n}…")
+            edit.setReadOnly(True)
+            browse = QPushButton("Browse…")
+            browse.setFixedWidth(85)
+            browse.clicked.connect(lambda _, idx=i: self._browse(idx))
+            grid.addWidget(lbl,    i, 0)
+            grid.addWidget(edit,   i, 1)
+            grid.addWidget(browse, i, 2)
+            self._path_edit.append(edit)
+
+        self._compare_btn = QPushButton("⚡ Compare")
+        self._compare_btn.setFixedWidth(110)
+        self._compare_btn.setEnabled(False)
+        self._compare_btn.clicked.connect(self._do_compare)
+        grid.addWidget(self._compare_btn, 0, 3, 2, 1, Qt.AlignmentFlag.AlignVCenter)
+        layout.addLayout(grid)
+
+        # Color filter bar (reuse same style as profile comparison)
+        filter_bar, self._filter_group = _make_color_filter_bar()
+        self._filter_group.idClicked.connect(self._on_color_filter)
+        layout.addWidget(filter_bar)
+
+        # Text filter
+        text_row = QHBoxLayout()
+        text_row.addWidget(QLabel("Filter:"))
+        self._filter_edit = QLineEdit()
+        self._filter_edit.setPlaceholderText("Search across all columns…")
+        self._filter_edit.textChanged.connect(self._on_text_filter)
+        text_row.addWidget(self._filter_edit)
+        layout.addLayout(text_row)
+
+        # Table
+        self._model = _make_model(self._COLS)
+        self._proxy = _EnvCmpFilterProxy()
+        self._proxy.setSourceModel(self._model)
+        self._table = _make_table()
+        self._table.setModel(self._proxy)
+        layout.addWidget(self._table)
+
+        # Status + export bar
+        bottom = QHBoxLayout()
+        self._status_lbl = QLabel("")
+        bottom.addWidget(self._status_lbl)
+        bottom.addStretch()
+        self._export_btn = QPushButton("Export CSV…")
+        self._export_btn.setFixedWidth(120)
+        self._export_btn.setEnabled(False)
+        self._export_btn.clicked.connect(self._export_csv)
+        bottom.addWidget(self._export_btn)
+        layout.addLayout(bottom)
+
+    # ── slots ─────────────────────────────────────────────────────────────
+
+    def _browse(self, idx: int) -> None:
+        with _suppress_glib_stderr():
+            path, _ = QFileDialog.getOpenFileName(
+                self, f"Select .env File {idx + 1}",
+                str(Path.home()),
+                "ENV files (*.env);;All files (*)",
+            )
+        if path:
+            self._path_edit[idx].setText(path)
+            self._file_names[idx] = Path(path).name
+            # Both paths filled → enable compare
+            self._compare_btn.setEnabled(
+                bool(self._path_edit[0].text() and self._path_edit[1].text())
+            )
+
+    def _do_compare(self) -> None:
+        p1 = self._path_edit[0].text().strip()
+        p2 = self._path_edit[1].text().strip()
+        if not p1 or not p2:
+            return
+        try:
+            env1 = parse_env_file(p1)
+            env2 = parse_env_file(p2)
+        except Exception as exc:
+            QMessageBox.critical(self, "Parse error", str(exc))
+            return
+
+        self._rows = compare_env_files(env1, env2)
+        self._fill_model()
+        self._export_btn.setEnabled(True)
+
+        counts = {s: 0 for s in STATUS_COLORS}
+        for r in self._rows:
+            counts[r.status] = counts.get(r.status, 0) + 1
+        self._status_lbl.setText(
+            f"{counts['different']} different · "
+            f"{counts['only_in_1']} only in F1 · "
+            f"{counts['only_in_2']} only in F2 · "
+            f"{counts['identical']} identical"
+        )
+
+    def _on_color_filter(self, btn_id: int) -> None:
+        _, status, _ = FILTER_BUTTONS[btn_id]
+        self._proxy.set_status(status)
+
+    def _on_text_filter(self, text: str) -> None:
+        self._proxy.set_text(text)
+
+    def _export_csv(self) -> None:
+        # Export visible (filtered) rows
+        visible: list[EnvCompareRow] = []
+        for proxy_row in range(self._proxy.rowCount()):
+            src_row = self._proxy.mapToSource(self._proxy.index(proxy_row, 0)).row()
+            visible.append(self._rows[src_row])
+
+        with _suppress_glib_stderr():
+            dest, _ = QFileDialog.getSaveFileName(
+                self, "Export ENV Comparison",
+                str(Path.home() / "env_comparison.csv"),
+                "CSV files (*.csv);;All files (*)",
+            )
+        if not dest:
+            return
+        try:
+            with open(dest, "w", newline="", encoding="utf-8") as f:
+                export_env_comparison_csv(visible, f)
+            QMessageBox.information(self, "Export complete",
+                                    f"Exported {len(visible)} rows to:\n{dest}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Export error", str(exc))
+
+    # ── helpers ───────────────────────────────────────────────────────────
+
+    def _fill_model(self) -> None:
+        # Update column headers with actual file names
+        self._model.setHorizontalHeaderLabels([
+            "Variable",
+            self._file_names[0],
+            self._file_names[1],
+            "Status",
+        ])
+        self._model.setRowCount(0)
+        for row in self._rows:
+            color = STATUS_COLORS.get(row.status, QColor("white"))
+            items = [
+                QStandardItem(row.variable),
+                QStandardItem(row.value_1),
+                QStandardItem(row.value_2),
+                QStandardItem(row.status),
+            ]
+            for item in items:
+                item.setBackground(color)
+            self._model.appendRow(items)
+
+
+class _EnvCmpFilterProxy(QSortFilterProxyModel):
+    """Proxy combining text filter + optional status filter for EnvCompareTab."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._status: str | None = None
+        self._text: str = ""
+        self.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+
+    def set_status(self, status: str | None) -> None:
+        self._status = status
+        self.invalidateFilter()
+
+    def set_text(self, text: str) -> None:
+        self._text = text.lower()
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
+        model = self.sourceModel()
+        if self._status is not None:
+            status_item = model.item(source_row, EnvCompareTab._STATUS_COL_IDX)
+            if not status_item or status_item.text() != self._status:
+                return False
+        if self._text:
+            for col in range(model.columnCount()):
+                item = model.item(source_row, col)
+                if item and self._text in item.text().lower():
+                    return True
+            return False
+        return True
+
+
 # ── Main Window ───────────────────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
@@ -547,6 +763,10 @@ class MainWindow(QMainWindow):
         # --- ENV Export tab ---
         self._env_tab = EnvExportTab()
         self._tabs.addTab(self._env_tab, "⚙ ENV Export")
+
+        # --- ENV Compare tab ---
+        self._env_cmp_tab = EnvCompareTab()
+        self._tabs.addTab(self._env_cmp_tab, "🔀 ENV Compare")
 
         vbox.addWidget(self._tabs)
 
@@ -691,9 +911,9 @@ class MainWindow(QMainWindow):
         self._tabs.setCurrentIndex(TAB_CMP)
 
     def _on_tab_changed(self, index: int) -> None:
-        is_env = index == TAB_ENV
-        self._bottom_bar.setVisible(not is_env)
-        self._color_bar.setVisible(not is_env)
+        is_own_ui = index in (TAB_ENV, TAB_ENVCMP)  # these tabs have their own toolbars
+        self._bottom_bar.setVisible(not is_own_ui)
+        self._color_bar.setVisible(not is_own_ui)
 
         self._filter_edit.clear()
         if index != TAB_CMP:
