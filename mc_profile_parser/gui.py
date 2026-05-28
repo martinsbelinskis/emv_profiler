@@ -258,6 +258,7 @@ class MainWindow(QMainWindow):
             self, f"Select Profile {idx + 1}",
             str(Path.home()),
             "Profile files (*.profile);;All files (*)",
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         if path:
             self._path_edit[idx].setText(path)
@@ -399,6 +400,7 @@ class MainWindow(QMainWindow):
             self, "Export CSV",
             str(Path.home() / default_name),
             "CSV files (*.csv);;All files (*)",
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
         return dest
 
