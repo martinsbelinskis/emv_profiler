@@ -791,9 +791,6 @@ class MCTab(QWidget):
         self._env_tab = EnvExportTab()
         self._tabs.addTab(self._env_tab, "⚙ ENV Export")
 
-        self._env_cmp_tab = EnvCompareTab()
-        self._tabs.addTab(self._env_cmp_tab, "🔀 ENV Compare")
-
         vbox.addWidget(self._tabs)
 
         # Bottom bar (hidden on tabs that have their own controls)
@@ -930,7 +927,7 @@ class MCTab(QWidget):
         self._tabs.setCurrentIndex(TAB_CMP)
 
     def _on_tab_changed(self, index: int) -> None:
-        is_own_ui = index in (TAB_ENV, TAB_ENVCMP)
+        is_own_ui = index == TAB_ENV
         self._bottom_bar.setVisible(not is_own_ui)
         self._color_bar.setVisible(not is_own_ui)
 
@@ -1029,6 +1026,9 @@ class MainWindow(QMainWindow):
             "VISA profile support — Reserved for Future Use"
         )
         outer.addTab(visa_placeholder, "💳  VISA")
+
+        # ── ENV Compare tab (top-level, not card-scheme specific) ──
+        outer.addTab(EnvCompareTab(), "🔀  ENV Compare")
 
         vbox.addWidget(outer)
 
