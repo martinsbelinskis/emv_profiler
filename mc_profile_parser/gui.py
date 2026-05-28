@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 import sys
 from dataclasses import fields
 from pathlib import Path
-from typing import Any
 
 from PyQt6.QtCore import Qt, QSortFilterProxyModel, QModelIndex
 from PyQt6.QtGui import QColor, QStandardItem, QStandardItemModel
@@ -118,6 +119,20 @@ def _simple_proxy(model: QStandardItemModel) -> QSortFilterProxyModel:
     p.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
     p.setFilterKeyColumn(-1)
     return p
+
+
+@contextlib.contextmanager
+def _suppress_glib_stderr():
+    """Suppress GLib/GIO critical warnings printed to stderr by the native file dialog."""
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    saved = os.dup(2)
+    os.dup2(devnull, 2)
+    os.close(devnull)
+    try:
+        yield
+    finally:
+        os.dup2(saved, 2)
+        os.close(saved)
 
 
 def _make_color_filter_bar() -> tuple[QWidget, QButtonGroup]:
@@ -271,12 +286,12 @@ class MainWindow(QMainWindow):
     # ── slots ─────────────────────────────────────────────────────────────
 
     def _browse(self, idx: int) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, f"Select Profile {idx + 1}",
-            str(Path.home()),
-            "Profile files (*.profile);;All files (*)",
-            options=QFileDialog.Option.DontUseNativeDialog,
-        )
+        with _suppress_glib_stderr():
+            path, _ = QFileDialog.getOpenFileName(
+                self, f"Select Profile {idx + 1}",
+                str(Path.home()),
+                "Profile files (*.profile);;All files (*)",
+            )
         if path:
             self._path_edit[idx].setText(path)
             self._parse_btn[idx].setEnabled(True)
@@ -418,12 +433,12 @@ class MainWindow(QMainWindow):
             self._export_btn.setEnabled(False)
 
     def _save_dialog(self, default_name: str) -> str:
-        dest, _ = QFileDialog.getSaveFileName(
-            self, "Export CSV",
-            str(Path.home() / default_name),
-            "CSV files (*.csv);;All files (*)",
-            options=QFileDialog.Option.DontUseNativeDialog,
-        )
+        with _suppress_glib_stderr():
+            dest, _ = QFileDialog.getSaveFileName(
+                self, "Export CSV",
+                str(Path.home() / default_name),
+                "CSV files (*.csv);;All files (*)",
+            )
         return dest
 
 
