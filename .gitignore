@@ -8,3 +8,6 @@ build/
 *.egg
 # PyInstaller
 *.spec.bak
+*.exe
+# User mapping/config files
+*_mapping*.json
