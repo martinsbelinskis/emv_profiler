@@ -13,6 +13,7 @@ from PyQt6.QtGui import QColor, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QComboBox,
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
@@ -25,16 +26,22 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QTabWidget,
     QTableView,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+import json
+
+from mc_profile_parser.env_template import ENV_TEMPLATE, EnvEntry
 from mc_profile_parser.parser import (
     ComparisonRow,
     DataElementRow,
     compare_profiles,
     export_comparison_csv,
     export_csv,
+    export_env,
     parse_profile,
 )
 
@@ -61,6 +68,9 @@ FILTER_BUTTONS: list[tuple[str, str | None, str]] = [
 TAB_P1  = 0
 TAB_P2  = 1
 TAB_CMP = 2
+TAB_ENV = 3
+
+_NOT_MAPPED = "(not mapped)"
 
 
 class _StatusFilterProxy(QSortFilterProxyModel):
@@ -171,6 +181,223 @@ def _make_color_filter_bar() -> tuple[QWidget, QButtonGroup]:
     return bar, group
 
 
+# ── ENV Export Tab ────────────────────────────────────────────────────────────
+
+class EnvExportTab(QWidget):
+    """Tab for mapping profile data elements to ENV variable names and exporting a .env file."""
+
+    _ENV_COLS = ["ENV Variable", "Tag", "Type", "Profile Element", "Value Preview"]
+    _COL_VAR, _COL_TAG, _COL_TYPE, _COL_ELEM, _COL_PREV = range(5)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        # _source_rows[0] = Profile 1 rows, _source_rows[1] = Profile 2 rows
+        self._source_rows: list[list[DataElementRow]] = [[], []]
+        # Ordered list of (element_id, display_label) for the current source profile
+        self._elem_options: list[tuple[str, str]] = []
+        # id -> DataElementRow for quick lookup
+        self._id_to_row: dict[str, DataElementRow] = {}
+        self._combos: list[QComboBox] = []
+        self._build_ui()
+
+    # ── construction ──────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        # Top bar
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Source profile:"))
+        self._src_combo = QComboBox()
+        self._src_combo.addItems(["Profile 1", "Profile 2"])
+        self._src_combo.setFixedWidth(110)
+        self._src_combo.currentIndexChanged.connect(self._on_source_changed)
+        top.addWidget(self._src_combo)
+        top.addStretch()
+        load_btn = QPushButton("Load Mapping…")
+        load_btn.clicked.connect(self._load_mapping)
+        save_btn = QPushButton("Save Mapping…")
+        save_btn.clicked.connect(self._save_mapping)
+        top.addWidget(load_btn)
+        top.addWidget(save_btn)
+        layout.addLayout(top)
+
+        # Table
+        self._table = QTableWidget(len(ENV_TEMPLATE), len(self._ENV_COLS))
+        self._table.setHorizontalHeaderLabels(self._ENV_COLS)
+        hdr = self._table.horizontalHeader()
+        hdr.setSectionResizeMode(self._COL_VAR,  QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(self._COL_TAG,  QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(self._COL_TYPE, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(self._COL_ELEM, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(self._COL_PREV, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.setColumnWidth(self._COL_ELEM, 320)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setAlternatingRowColors(True)
+
+        for row_idx, entry in enumerate(ENV_TEMPLATE):
+            def _ro(text: str, align=Qt.AlignmentFlag.AlignLeft) -> QTableWidgetItem:
+                item = QTableWidgetItem(text)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
+                return item
+
+            self._table.setItem(row_idx, self._COL_VAR,  _ro(entry.var_name))
+            self._table.setItem(row_idx, self._COL_TAG,  _ro(entry.primary_tag, Qt.AlignmentFlag.AlignCenter))
+            self._table.setItem(row_idx, self._COL_TYPE, _ro(entry.type_hint or "hex", Qt.AlignmentFlag.AlignCenter))
+
+            combo = QComboBox()
+            combo.addItem(_NOT_MAPPED)
+            combo.currentIndexChanged.connect(lambda _, r=row_idx: self._update_preview(r))
+            self._combos.append(combo)
+            self._table.setCellWidget(row_idx, self._COL_ELEM, combo)
+
+            self._table.setItem(row_idx, self._COL_PREV, _ro("—"))
+
+        layout.addWidget(self._table)
+
+        # Bottom bar
+        bottom = QHBoxLayout()
+        bottom.addStretch()
+        self._export_btn = QPushButton("Export .env…")
+        self._export_btn.clicked.connect(self._export_env)
+        bottom.addWidget(self._export_btn)
+        layout.addLayout(bottom)
+
+    # ── public API ────────────────────────────────────────────────────────
+
+    def update_profile(self, idx: int, rows: list[DataElementRow]) -> None:
+        """Called by MainWindow when a profile is parsed."""
+        self._source_rows[idx] = rows
+        if self._src_combo.currentIndex() == idx:
+            self._on_source_changed(idx)
+
+    # ── slots ─────────────────────────────────────────────────────────────
+
+    def _on_source_changed(self, idx: int) -> None:
+        rows = self._source_rows[idx]
+        self._id_to_row = {r.id: r for r in rows}
+        # Build ordered option list; disambiguate duplicate tags with interface/section context
+        self._elem_options = []
+        for r in rows:
+            label = f"{r.tag} — {r.name}  [{r.interface}/{r.section}]"
+            self._elem_options.append((r.id, label))
+        self._refresh_combos(keep_selection=False)
+
+    def _refresh_combos(self, *, keep_selection: bool) -> None:
+        labels = [_NOT_MAPPED] + [label for _, label in self._elem_options]
+        ids    = [""]          + [eid   for eid,  _   in self._elem_options]
+
+        for row_idx, (combo, entry) in enumerate(zip(self._combos, ENV_TEMPLATE)):
+            prev_id = combo.currentData() or ""
+            combo.blockSignals(True)
+            combo.clear()
+            for label, eid in zip(labels, ids):
+                combo.addItem(label, userData=eid)
+
+            matched = False
+            if keep_selection and prev_id:
+                # Try to restore previous element-id selection
+                for i, eid in enumerate(ids):
+                    if eid == prev_id:
+                        combo.setCurrentIndex(i)
+                        matched = True
+                        break
+
+            if not matched:
+                # Auto-map: find first profile element whose tag matches any of entry.tags
+                for tag in entry.tags:
+                    for i, (eid, _) in enumerate(self._elem_options, start=1):
+                        row = self._id_to_row.get(eid)
+                        if row and row.tag.upper() == tag.upper():
+                            combo.setCurrentIndex(i)
+                            matched = True
+                            break
+                    if matched:
+                        break
+
+            combo.blockSignals(False)
+            self._update_preview(row_idx)
+
+    def _update_preview(self, row_idx: int) -> None:
+        from mc_profile_parser.parser import _hex_to_display
+        combo = self._combos[row_idx]
+        elem_id: str = combo.currentData() or ""
+        entry = ENV_TEMPLATE[row_idx]
+        row = self._id_to_row.get(elem_id)
+        hex_val = row.value if row else ""
+        preview = _hex_to_display(hex_val, entry.type_hint) if hex_val else "—"
+        item = self._table.item(row_idx, self._COL_PREV)
+        if item:
+            item.setText(preview)
+
+    def _get_mapping(self) -> dict[str, str]:
+        """Return {var_name: element_id} for all mapped rows."""
+        return {
+            ENV_TEMPLATE[i].var_name: (combo.currentData() or "")
+            for i, combo in enumerate(self._combos)
+            if combo.currentData()
+        }
+
+    def _load_mapping(self) -> None:
+        with _suppress_glib_stderr():
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Load Mapping", str(Path.home()),
+                "JSON files (*.json);;All files (*)",
+            )
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                mapping: dict[str, str] = json.load(f)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load error", str(exc))
+            return
+
+        ids = [""] + [eid for eid, _ in self._elem_options]
+        for i, entry in enumerate(ENV_TEMPLATE):
+            elem_id = mapping.get(entry.var_name, "")
+            if elem_id and elem_id in ids:
+                self._combos[i].setCurrentIndex(ids.index(elem_id))
+
+    def _save_mapping(self) -> None:
+        with _suppress_glib_stderr():
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Save Mapping", str(Path.home() / "env_mapping.json"),
+                "JSON files (*.json);;All files (*)",
+            )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self._get_mapping(), f, indent=2)
+        except Exception as exc:
+            QMessageBox.critical(self, "Save error", str(exc))
+
+    def _export_env(self) -> None:
+        with _suppress_glib_stderr():
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Export .env", str(Path.home() / "profile.env"),
+                "ENV files (*.env);;All files (*)",
+            )
+        if not path:
+            return
+        try:
+            mapping = self._get_mapping()
+            with open(path, "w", encoding="utf-8") as f:
+                export_env(ENV_TEMPLATE, mapping, self._id_to_row, f)
+            QMessageBox.information(self, "Export complete",
+                                    f"Exported {len(ENV_TEMPLATE)} variables to:\n{path}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Export error", str(exc))
+
+
+# ── Main Window ───────────────────────────────────────────────────────────────
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -255,10 +482,16 @@ class MainWindow(QMainWindow):
         self._table_cmp.setModel(self._proxy_cmp)
         self._tabs.addTab(self._table_cmp, "⚡ Comparison")
 
+        # --- ENV Export tab ---
+        self._env_tab = EnvExportTab()
+        self._tabs.addTab(self._env_tab, "⚙ ENV Export")
+
         vbox.addWidget(self._tabs)
 
-        # Bottom bar
-        bottom = QHBoxLayout()
+        # Bottom bar (hidden on ENV tab which has its own controls)
+        self._bottom_bar = QWidget()
+        bottom = QHBoxLayout(self._bottom_bar)
+        bottom.setContentsMargins(0, 0, 0, 0)
 
         bottom.addWidget(QLabel("Filter:"))
         self._filter_edit = QLineEdit()
@@ -272,7 +505,7 @@ class MainWindow(QMainWindow):
         self._export_btn.clicked.connect(self._export)
         bottom.addWidget(self._export_btn)
 
-        vbox.addLayout(bottom)
+        vbox.addWidget(self._bottom_bar)
 
         # Color filter / legend bar (always visible; filters apply to Comparison tab)
         self._color_bar, self._filter_btn_group = _make_color_filter_bar()
@@ -315,6 +548,7 @@ class MainWindow(QMainWindow):
         setattr(self, rows_attr, rows)
         self._profile_names[idx] = Path(path).name
         self._fill_profile_model(model, rows)
+        self._env_tab.update_profile(idx, rows)
         self._tabs.setCurrentIndex(idx)
         self._clear_comparison()
         self._export_btn.setEnabled(True)
@@ -384,25 +618,29 @@ class MainWindow(QMainWindow):
             self._proxy_1.setFilterFixedString(text)
         elif tab == TAB_P2:
             self._proxy_2.setFilterFixedString(text)
-        else:
+        elif tab == TAB_CMP:
             self._proxy_cmp.set_text(text)
+        # TAB_ENV has no shared filter
 
     def _on_color_filter(self, btn_id: int) -> None:
         """Apply the status filter for the clicked color button."""
         _, status, _ = FILTER_BUTTONS[btn_id]
         self._proxy_cmp.set_status(status)
-        # Switch to comparison tab so the effect is immediately visible
         self._tabs.setCurrentIndex(TAB_CMP)
 
     def _on_tab_changed(self, index: int) -> None:
+        is_env = index == TAB_ENV
+        self._bottom_bar.setVisible(not is_env)
+        self._color_bar.setVisible(not is_env)
+
         self._filter_edit.clear()
-        # Reset color filter buttons to "All" when leaving comparison tab
         if index != TAB_CMP:
             self._filter_btn_group.button(0).setChecked(True)
             self._proxy_cmp.set_status(None)
+
         has_data = (
-            (index == TAB_P1 and bool(self._rows_1))
-            or (index == TAB_P2 and bool(self._rows_2))
+            (index == TAB_P1  and bool(self._rows_1))
+            or (index == TAB_P2  and bool(self._rows_2))
             or (index == TAB_CMP and bool(self._cmp_rows))
         )
         self._export_btn.setEnabled(has_data)

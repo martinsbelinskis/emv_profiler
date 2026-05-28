@@ -179,3 +179,41 @@ def _write_csv(output: io.TextIOBase, fieldnames: list[str], rows: list[dict]) -
     writer.writerows(rows)
 
 
+def _hex_to_display(hex_val: str, type_hint: str) -> str:
+    """Convert a hex profile value to the string used in the .env output."""
+    hex_val = hex_val.strip()
+    if not hex_val:
+        return ""
+    # Validate: must be even-length hex
+    if len(hex_val) % 2 != 0 or not all(c in "0123456789ABCDEFabcdef" for c in hex_val):
+        return hex_val  # pass through as-is if not valid hex
+    if type_hint.lower() == "a":
+        try:
+            return bytes.fromhex(hex_val).decode("latin-1")
+        except Exception:
+            return hex_val
+    return hex_val
+
+
+def export_env(
+    entries: "list[EnvEntry]",
+    mapping: dict[str, str],       # {var_name -> element_id}
+    id_to_row: dict[str, DataElementRow],  # {element_id -> row}
+    output: io.TextIOBase,
+) -> None:
+    """Write a .env file from the template, mapping, and profile data.
+
+    Args:
+        entries: Ordered list of EnvEntry templates.
+        mapping: Maps each var_name to the profile element id to use.
+        id_to_row: Maps element id to its DataElementRow (from the source profile).
+        output: Writable text stream.
+    """
+    for entry in entries:
+        elem_id = mapping.get(entry.var_name, "")
+        row = id_to_row.get(elem_id)
+        hex_val = row.value if row else ""
+        display_val = _hex_to_display(hex_val, entry.type_hint)
+        # Escape embedded double-quotes
+        safe_val = display_val.replace("\\", "\\\\").replace('"', '\\"')
+        output.write(f'{entry.var_name} = "{safe_val}"\n')
