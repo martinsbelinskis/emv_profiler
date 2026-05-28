@@ -240,22 +240,33 @@ def parse_env_file(path: str | Path) -> dict[str, str]:
     Handles quoted values (single or double quotes), inline comments starting
     with ``//`` or ``#`` after the value are stripped.  Lines that start with
     ``//`` or ``#`` (comments) and blank lines are skipped.
+
+    Encoding is auto-detected: UTF-8-with-BOM → UTF-8 → cp1252 → latin-1.
     """
+    path = Path(path)
+    raw = path.read_bytes()
+    # Try encodings in order; latin-1 always succeeds (every byte is valid)
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            text = raw.decode(enc)
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+
     result: dict[str, str] = {}
-    with open(path, encoding="utf-8") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line or line.startswith("//") or line.startswith("#"):
-                continue
-            m = _ENV_LINE_RE.match(line)
-            if not m:
-                continue
-            key = m.group(1).strip()
-            val = m.group(2).strip()
-            # Strip surrounding quotes
-            if len(val) >= 2 and val[0] in ('"', "'") and val[-1] == val[0]:
-                val = val[1:-1]
-            result[key] = val
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("//") or line.startswith("#"):
+            continue
+        m = _ENV_LINE_RE.match(line)
+        if not m:
+            continue
+        key = m.group(1).strip()
+        val = m.group(2).strip()
+        # Strip surrounding quotes
+        if len(val) >= 2 and val[0] in ('"', "'") and val[-1] == val[0]:
+            val = val[1:-1]
+        result[key] = val
     return result
 
 
