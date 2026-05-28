@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mc_profile_parser"
-version = "0.1.0"
-description = "A CLI tool for parsing MC profiles"
+name = "emv_profiler"
+version = "0.2.0"
+description = "EMV Profiler — GUI tool for parsing and comparing EMV card profiles"
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.0",
@@ -13,8 +13,8 @@ dependencies = [
 ]
 
 [project.scripts]
-mc-profile-parser = "mc_profile_parser.cli:main"
-mc-profile-parser-gui = "mc_profile_parser.gui:run_gui"
+emv-profiler = "emv_profiler.cli:main"
+emv-profiler-gui = "emv_profiler.gui:run_gui"
 
 [tool.setuptools.packages.find]
 where = ["."]

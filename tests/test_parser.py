@@ -1,11 +1,11 @@
-"""Tests for mc_profile_parser."""
+"""Tests for emv_profiler."""
 
 import io
 import zipfile
 
 import pytest
 
-from mc_profile_parser.parser import (
+from emv_profiler.parser import (
     ComparisonRow,
     DataElementRow,
     EnvCompareRow,

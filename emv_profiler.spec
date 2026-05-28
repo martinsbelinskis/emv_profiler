@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for mc_profile_parser GUI (Windows one-file build)."""
+"""PyInstaller spec for emv_profiler GUI (Windows one-file build)."""
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
 a = Analysis(
-    ['mc_profile_parser/__main__.py'],
+    ['emv_profiler/__main__.py'],
     pathex=['.'],
     binaries=[],
     datas=collect_data_files('PyQt6', include_py_files=False),
@@ -15,11 +15,11 @@ a = Analysis(
         'PyQt6.QtCore',
         'PyQt6.QtGui',
         'PyQt6.QtWidgets',
-        'mc_profile_parser.gui',
-        'mc_profile_parser.parser',
-        'mc_profile_parser.env_template',
-        'mc_profile_parser.visa_env_template',
-        'mc_profile_parser.cli',
+        'emv_profiler.gui',
+        'emv_profiler.parser',
+        'emv_profiler.env_template',
+        'emv_profiler.visa_env_template',
+        'emv_profiler.cli',
         'xml.etree.ElementTree',
         'zipfile',
         'csv',
@@ -43,7 +43,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='mc_profile_parser',
+    name='emv_profiler',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -1,11 +1,11 @@
-"""CLI entry point for mc_profile_parser."""
+"""CLI entry point for emv_profiler."""
 
 import sys
 from pathlib import Path
 
 import click
 
-from mc_profile_parser.parser import export_csv, parse_profile
+from emv_profiler.parser import export_csv, parse_profile
 
 
 def _resolve_profile(path: str) -> str:
@@ -51,7 +51,7 @@ def parse(profile: str, output: str) -> None:
 @main.command()
 def gui() -> None:
     """Launch the graphical interface."""
-    from mc_profile_parser.gui import run_gui
+    from emv_profiler.gui import run_gui
     run_gui()
 
 

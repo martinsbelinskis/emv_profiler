@@ -1,4 +1,4 @@
-"""PyQt6 GUI for mc_profile_parser."""
+"""PyQt6 GUI for EMV Profiler."""
 
 from __future__ import annotations
 
@@ -34,9 +34,9 @@ from PyQt6.QtWidgets import (
 
 import json
 
-from mc_profile_parser.env_template import ENV_TEMPLATE, EnvEntry
-from mc_profile_parser.visa_env_template import VISA_ENV_TEMPLATE, VisaEnvEntry
-from mc_profile_parser.parser import (
+from emv_profiler.env_template import ENV_TEMPLATE, EnvEntry
+from emv_profiler.visa_env_template import VISA_ENV_TEMPLATE, VisaEnvEntry
+from emv_profiler.parser import (
     ComparisonRow,
     DataElementRow,
     EnvCompareRow,
@@ -402,7 +402,7 @@ class EnvExportTab(QWidget):
             self._table.setRowHidden(row_idx, not visible)
 
     def _update_preview(self, row_idx: int) -> None:
-        from mc_profile_parser.parser import _hex_to_display
+        from emv_profiler.parser import _hex_to_display
         combo = self._combos[row_idx]
         elem_id: str = combo.currentData() or ""
         entry = ENV_TEMPLATE[row_idx]
@@ -1176,7 +1176,7 @@ class VisaEnvExportTab(QWidget):
             self._update_preview(row_idx)
 
     def _update_preview(self, row_idx: int) -> None:
-        from mc_profile_parser.parser import _hex_to_display
+        from emv_profiler.parser import _hex_to_display
         combo = self._combos[row_idx]
         elem_id: str = combo.currentData() or ""
         entry = VISA_ENV_TEMPLATE[row_idx]
@@ -1580,7 +1580,7 @@ def _make_placeholder_tab(message: str) -> QWidget:
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Card Profile Parser")
+        self.setWindowTitle("EMV Profiler")
         self.resize(1200, 750)
         self._build_ui()
 
