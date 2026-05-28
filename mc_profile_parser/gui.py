@@ -180,6 +180,7 @@ class MainWindow(QMainWindow):
         self._rows_1: list[DataElementRow] = []
         self._rows_2: list[DataElementRow] = []
         self._cmp_rows: list[ComparisonRow] = []
+        self._profile_names: list[str] = ["Profile 1", "Profile 2"]
 
         self._build_ui()
 
@@ -312,6 +313,7 @@ class MainWindow(QMainWindow):
         model = [self._model_1, self._model_2][idx]
         rows_attr = ["_rows_1", "_rows_2"][idx]
         setattr(self, rows_attr, rows)
+        self._profile_names[idx] = Path(path).name
         self._fill_profile_model(model, rows)
         self._tabs.setCurrentIndex(idx)
         self._clear_comparison()
@@ -414,6 +416,14 @@ class MainWindow(QMainWindow):
             model.appendRow(items)
 
     def _fill_comparison_model(self, rows: list[ComparisonRow]) -> None:
+        # Use actual profile filenames as column headers for value_1 / value_2
+        headers = [
+            self._profile_names[0] if col == "value_1"
+            else self._profile_names[1] if col == "value_2"
+            else col
+            for col in CMP_COLS
+        ]
+        self._model_cmp.setHorizontalHeaderLabels(headers)
         self._model_cmp.setRowCount(0)
         for row in rows:
             color = STATUS_COLORS.get(row.status, QColor("white"))
