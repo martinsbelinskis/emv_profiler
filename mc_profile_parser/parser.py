@@ -198,22 +198,22 @@ def _hex_to_display(hex_val: str, type_hint: str) -> str:
 def export_env(
     entries: "list[EnvEntry]",
     mapping: dict[str, str],       # {var_name -> element_id}
+    overrides: dict[str, str],     # {var_name -> manual override value (takes priority)}
     id_to_row: dict[str, DataElementRow],  # {element_id -> row}
     output: io.TextIOBase,
 ) -> None:
-    """Write a .env file from the template, mapping, and profile data.
+    """Write a .env file from the template, mapping, overrides and profile data.
 
-    Args:
-        entries: Ordered list of EnvEntry templates.
-        mapping: Maps each var_name to the profile element id to use.
-        id_to_row: Maps element id to its DataElementRow (from the source profile).
-        output: Writable text stream.
+    Priority: override value > profile-mapped value > empty.
     """
     for entry in entries:
-        elem_id = mapping.get(entry.var_name, "")
-        row = id_to_row.get(elem_id)
-        hex_val = row.value if row else ""
-        display_val = _hex_to_display(hex_val, entry.type_hint)
-        # Escape embedded double-quotes
+        override = overrides.get(entry.var_name, "").strip()
+        if override:
+            display_val = override
+        else:
+            elem_id = mapping.get(entry.var_name, "")
+            row = id_to_row.get(elem_id)
+            hex_val = row.value if row else ""
+            display_val = _hex_to_display(hex_val, entry.type_hint) if hex_val else ""
         safe_val = display_val.replace("\\", "\\\\").replace('"', '\\"')
         output.write(f'{entry.var_name} = "{safe_val}"\n')

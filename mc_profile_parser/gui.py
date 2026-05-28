@@ -186,8 +186,8 @@ def _make_color_filter_bar() -> tuple[QWidget, QButtonGroup]:
 class EnvExportTab(QWidget):
     """Tab for mapping profile data elements to ENV variable names and exporting a .env file."""
 
-    _ENV_COLS = ["ENV Variable", "Tag", "Type", "Profile Element", "Value Preview"]
-    _COL_VAR, _COL_TAG, _COL_TYPE, _COL_ELEM, _COL_PREV = range(5)
+    _ENV_COLS = ["ENV Variable", "Tag", "Type", "Profile Element", "Override Value", "Preview"]
+    _COL_VAR, _COL_TAG, _COL_TYPE, _COL_ELEM, _COL_OVR, _COL_PREV = range(6)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -232,10 +232,14 @@ class EnvExportTab(QWidget):
         hdr.setSectionResizeMode(self._COL_TAG,  QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(self._COL_TYPE, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(self._COL_ELEM, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(self._COL_OVR,  QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(self._COL_PREV, QHeaderView.ResizeMode.ResizeToContents)
         self._table.setColumnWidth(self._COL_ELEM, 320)
+        self._table.setColumnWidth(self._COL_OVR,  160)
         self._table.verticalHeader().setVisible(False)
-        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        # Only override column is editable — all others are read-only
+        self._table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked |
+                                    QTableWidget.EditTrigger.AnyKeyPressed)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setAlternatingRowColors(True)
 
@@ -256,8 +260,14 @@ class EnvExportTab(QWidget):
             self._combos.append(combo)
             self._table.setCellWidget(row_idx, self._COL_ELEM, combo)
 
+            # Override Value column — editable; pre-fill from entry.default_value
+            ovr_item = QTableWidgetItem(entry.default_value)
+            ovr_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            self._table.setItem(row_idx, self._COL_OVR, ovr_item)
+
             self._table.setItem(row_idx, self._COL_PREV, _ro("—"))
 
+        self._table.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self._table)
 
         # Bottom bar
@@ -292,6 +302,7 @@ class EnvExportTab(QWidget):
         labels = [_NOT_MAPPED] + [label for _, label in self._elem_options]
         ids    = [""]          + [eid   for eid,  _   in self._elem_options]
 
+        self._table.blockSignals(True)
         for row_idx, (combo, entry) in enumerate(zip(self._combos, ENV_TEMPLATE)):
             prev_id = combo.currentData() or ""
             combo.blockSignals(True)
@@ -321,6 +332,15 @@ class EnvExportTab(QWidget):
                         break
 
             combo.blockSignals(False)
+
+            # When switching source profile (not keeping selection), reset override to default
+            if not keep_selection:
+                ovr_item = self._table.item(row_idx, self._COL_OVR)
+                if ovr_item is not None:
+                    ovr_item.setText(entry.default_value)
+
+        self._table.blockSignals(False)
+        for row_idx in range(len(ENV_TEMPLATE)):
             self._update_preview(row_idx)
 
     def _update_preview(self, row_idx: int) -> None:
@@ -328,20 +348,39 @@ class EnvExportTab(QWidget):
         combo = self._combos[row_idx]
         elem_id: str = combo.currentData() or ""
         entry = ENV_TEMPLATE[row_idx]
-        row = self._id_to_row.get(elem_id)
-        hex_val = row.value if row else ""
-        preview = _hex_to_display(hex_val, entry.type_hint) if hex_val else "—"
-        item = self._table.item(row_idx, self._COL_PREV)
-        if item:
-            item.setText(preview)
 
-    def _get_mapping(self) -> dict[str, str]:
-        """Return {var_name: element_id} for all mapped rows."""
-        return {
-            ENV_TEMPLATE[i].var_name: (combo.currentData() or "")
-            for i, combo in enumerate(self._combos)
-            if combo.currentData()
-        }
+        # Override takes priority over profile mapping
+        ovr_item = self._table.item(row_idx, self._COL_OVR)
+        override = (ovr_item.text().strip() if ovr_item else "")
+
+        if override:
+            preview = override
+        else:
+            row = self._id_to_row.get(elem_id)
+            hex_val = row.value if row else ""
+            preview = _hex_to_display(hex_val, entry.type_hint) if hex_val else "—"
+
+        prev_item = self._table.item(row_idx, self._COL_PREV)
+        if prev_item:
+            # Block signals to avoid recursive itemChanged
+            self._table.blockSignals(True)
+            prev_item.setText(preview)
+            self._table.blockSignals(False)
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        """Refresh preview when the override column is edited."""
+        if item.column() == self._COL_OVR:
+            self._update_preview(item.row())
+
+    def _get_mapping(self) -> dict[str, dict]:
+        """Return {var_name: {element_id, override}} for all rows."""
+        result: dict[str, dict] = {}
+        for i, (combo, entry) in enumerate(zip(self._combos, ENV_TEMPLATE)):
+            elem_id = combo.currentData() or ""
+            ovr_item = self._table.item(i, self._COL_OVR)
+            override = (ovr_item.text().strip() if ovr_item else "")
+            result[entry.var_name] = {"element_id": elem_id, "override": override}
+        return result
 
     def _load_mapping(self) -> None:
         with _suppress_glib_stderr():
@@ -353,16 +392,37 @@ class EnvExportTab(QWidget):
             return
         try:
             with open(path, encoding="utf-8") as f:
-                mapping: dict[str, str] = json.load(f)
+                raw: dict = json.load(f)
         except Exception as exc:
             QMessageBox.critical(self, "Load error", str(exc))
             return
 
         ids = [""] + [eid for eid, _ in self._elem_options]
+        self._table.blockSignals(True)
         for i, entry in enumerate(ENV_TEMPLATE):
-            elem_id = mapping.get(entry.var_name, "")
-            if elem_id and elem_id in ids:
+            val = raw.get(entry.var_name)
+            if val is None:
+                continue
+            # Support old format (plain string element_id) and new format (dict)
+            if isinstance(val, str):
+                elem_id, override = val, ""
+            else:
+                elem_id = val.get("element_id", "")
+                override = val.get("override", "")
+
+            if elem_id in ids:
+                self._combos[i].blockSignals(True)
                 self._combos[i].setCurrentIndex(ids.index(elem_id))
+                self._combos[i].blockSignals(False)
+
+            ovr_item = self._table.item(i, self._COL_OVR)
+            if ovr_item is not None:
+                ovr_item.setText(override)
+
+        self._table.blockSignals(False)
+        # Refresh all previews after loading
+        for i in range(len(ENV_TEMPLATE)):
+            self._update_preview(i)
 
     def _save_mapping(self) -> None:
         with _suppress_glib_stderr():
@@ -387,9 +447,11 @@ class EnvExportTab(QWidget):
         if not path:
             return
         try:
-            mapping = self._get_mapping()
+            full_mapping = self._get_mapping()
+            element_id_map = {k: v["element_id"] for k, v in full_mapping.items()}
+            override_map   = {k: v["override"]    for k, v in full_mapping.items()}
             with open(path, "w", encoding="utf-8") as f:
-                export_env(ENV_TEMPLATE, mapping, self._id_to_row, f)
+                export_env(ENV_TEMPLATE, element_id_map, override_map, self._id_to_row, f)
             QMessageBox.information(self, "Export complete",
                                     f"Exported {len(ENV_TEMPLATE)} variables to:\n{path}")
         except Exception as exc:
