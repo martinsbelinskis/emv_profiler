@@ -215,12 +215,19 @@ class EnvExportTab(QWidget):
         super().__init__(parent)
         # _source_rows[0] = Profile 1 rows, _source_rows[1] = Profile 2 rows
         self._source_rows: list[list[DataElementRow]] = [[], []]
+        self._profile_names: list[str] = ["", ""]
         # Ordered list of (element_id, display_label) for the current source profile
         self._elem_options: list[tuple[str, str]] = []
         # id -> DataElementRow for quick lookup
         self._id_to_row: dict[str, DataElementRow] = {}
         self._combos: list[QComboBox] = []
         self._build_ui()
+
+    def _default_env_filename(self) -> str:
+        idx = self._src_combo.currentIndex()
+        raw = self._profile_names[idx]
+        stem = Path(raw).stem if raw else "profile"
+        return f"Issuer_Chip_MC_DEBIT_BIN_{stem}.env"
 
     # ── construction ──────────────────────────────────────────────────────
 
@@ -316,9 +323,12 @@ class EnvExportTab(QWidget):
 
     # ── public API ────────────────────────────────────────────────────────
 
-    def update_profile(self, idx: int, rows: list[DataElementRow]) -> None:
-        """Called by MainWindow when a profile is parsed."""
+    def update_profile(self, idx: int, rows: list[DataElementRow],
+                       name: str = "") -> None:
+        """Called by MCTab when a profile is parsed."""
         self._source_rows[idx] = rows
+        if name:
+            self._profile_names[idx] = name
         if self._src_combo.currentIndex() == idx:
             self._on_source_changed(idx)
 
@@ -497,9 +507,10 @@ class EnvExportTab(QWidget):
             QMessageBox.critical(self, "Save error", str(exc))
 
     def _export_env(self) -> None:
+        default_name = self._default_env_filename()
         with _suppress_glib_stderr():
             path, _ = QFileDialog.getSaveFileName(
-                self, "Export .env", str(Path.home() / "profile.env"),
+                self, "Export .env", str(Path.home() / default_name),
                 "ENV files (*.env);;All files (*)",
             )
         if not path:
@@ -836,7 +847,7 @@ class MCTab(QWidget):
         setattr(self, rows_attr, rows)
         self._profile_names[idx] = Path(path).name
         self._fill_profile_model(model, rows)
-        self._env_tab.update_profile(idx, rows)
+        self._env_tab.update_profile(idx, rows, name=Path(path).name)
         self._tabs.setCurrentIndex(idx)
         self._clear_comparison()
         self._export_btn.setEnabled(True)
@@ -992,10 +1003,17 @@ class VisaEnvExportTab(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._source_rows: list[list[VisaElementRow]] = [[], []]
+        self._profile_names: list[str] = ["", ""]
         self._elem_options: list[tuple[str, str]] = []   # (id, label)
         self._id_to_row: dict[str, VisaElementRow] = {}
         self._combos: list[QComboBox] = []
         self._build_ui()
+
+    def _default_env_filename(self) -> str:
+        idx = self._src_combo.currentIndex()
+        raw = self._profile_names[idx]
+        stem = Path(raw).stem if raw else "profile"
+        return f"Issuer_Chip_VISA_DEBIT_BIN_{stem}.env"
 
     # ── construction ──────────────────────────────────────────────────────
 
@@ -1091,8 +1109,11 @@ class VisaEnvExportTab(QWidget):
 
     # ── public API ────────────────────────────────────────────────────────
 
-    def update_profile(self, idx: int, rows: list[VisaElementRow]) -> None:
+    def update_profile(self, idx: int, rows: list[VisaElementRow],
+                       name: str = "") -> None:
         self._source_rows[idx] = rows
+        if name:
+            self._profile_names[idx] = name
         if self._src_combo.currentIndex() == idx:
             self._on_source_changed(idx)
 
@@ -1262,9 +1283,10 @@ class VisaEnvExportTab(QWidget):
             QMessageBox.critical(self, "Save error", str(exc))
 
     def _export_env(self) -> None:
+        default_name = self._default_env_filename()
         with _suppress_glib_stderr():
             path, _ = QFileDialog.getSaveFileName(
-                self, "Export VISA .env", str(Path.home() / "visa_profile.env"),
+                self, "Export VISA .env", str(Path.home() / default_name),
                 "ENV files (*.env);;All files (*)",
             )
         if not path:
@@ -1428,7 +1450,7 @@ class VisaTab(QWidget):
         setattr(self, rows_attr, rows)
         self._profile_names[idx] = Path(path).name
         self._fill_profile_model(model, rows)
-        self._env_tab.update_profile(idx, rows)
+        self._env_tab.update_profile(idx, rows, name=Path(path).name)
         self._tabs.setCurrentIndex(idx)
         self._clear_comparison()
         self._export_btn.setEnabled(True)

@@ -1,0 +1,462 @@
+{
+  "ApplicationLabel_50_a": {
+    "element_id": "emv.fci.applabel",
+    "override": ""
+  },
+  "ApplicationPreferredName_9F12_a": {
+    "element_id": "emv.fci.applabel",
+    "override": ""
+  },
+  "LanguagePreference_5F2D_a": {
+    "element_id": "emvlanguagepref.fci.languagepreference",
+    "override": ""
+  },
+  "IFR_9F0A": {
+    "element_id": "emveu.fci.appselectionregisteredpropdata",
+    "override": ""
+  },
+  "ACSessionKeyCounterLimitContact_DF3A_x2": {
+    "element_id": "mcact.internal.acsessionkeycounterlimit",
+    "override": ""
+  },
+  "Accumulator1ControlContact_DF11_x1": {
+    "element_id": "mcact.internal.acc1control",
+    "override": ""
+  },
+  "Accumulator1CurrencyConversionTable_D1_x25": {
+    "element_id": "mcash.internal.acc1currconvtable",
+    "override": ""
+  },
+  "Accumulator1CVRDependencyDataContact_DF28_x3": {
+    "element_id": "mcact.internal.acc1cvrdependencydata",
+    "override": ""
+  },
+  "Accumulator1LowerLimit_CA_x6": {
+    "element_id": "mcash.internal.acc1lowerlimit",
+    "override": ""
+  },
+  "Accumulator1UpperLimit_CB_x6": {
+    "element_id": "mcash.internal.acc1upperlimit",
+    "override": ""
+  },
+  "Accumulator2ControlContact_DF14_x1": {
+    "element_id": "mcact.internal.acc2control",
+    "override": ""
+  },
+  "Accumulator2CurrencyCode_DF16_x2": {
+    "element_id": "mcash.internal.acc2currcode",
+    "override": ""
+  },
+  "Accumulator2CurrencyConversionTable_DF17_x25": {
+    "element_id": "mcash.internal.acc2currconvtable",
+    "override": ""
+  },
+  "Accumulator2CVRDependencyDataContact_DF2A_x3": {
+    "element_id": "mcact.internal.acc2cvrdependencydata",
+    "override": ""
+  },
+  "Accumulator2LowerLimit_DF18_x6": {
+    "element_id": "mcash.internal.acc2lowerlimit",
+    "override": ""
+  },
+  "Accumulator2UpperLimit_DF19_x6": {
+    "element_id": "mcash.internal.acc2upperlimit",
+    "override": ""
+  },
+  "AdditionalCheckTable_D3_x18": {
+    "element_id": "mcash.internal.additionalchecktable",
+    "override": ""
+  },
+  "ApplicationControlContact_D5_x6": {
+    "element_id": "mcact.internal.appcontrol",
+    "override": ""
+  },
+  "CIACDeclineContact_C3_x3": {
+    "element_id": "mcact.internal.ciacdecline",
+    "override": ""
+  },
+  "CIACDefaultContact_C4_x3": {
+    "element_id": "mcact.internal.ciacdefault",
+    "override": ""
+  },
+  "CIACOnlineContact_C5_x3": {
+    "element_id": "mcact.internal.ciaconline",
+    "override": ""
+  },
+  "Cdol1L_C7_x": {
+    "element_id": "emvnonmobilesh.internal.cdol1relateddatalength",
+    "override": ""
+  },
+  "Counter1ControlContact_DF1A_x1": {
+    "element_id": "mcact.internal.counter1control",
+    "override": ""
+  },
+  "Counter1CVRDependencyDataContact_DF2C_x3": {
+    "element_id": "mcact.internal.counter1cvrdependencydata",
+    "override": ""
+  },
+  "Counter1LowerLimit_9F14_x1": {
+    "element_id": "mcash.internal.counter1lowerlimit",
+    "override": ""
+  },
+  "Counter1UpperLimit_9F23_x1": {
+    "element_id": "mcash.internal.counter1upperlimit",
+    "override": ""
+  },
+  "Counter2ControlContact_DF1D_x1": {
+    "element_id": "mcact.internal.counter2control",
+    "override": ""
+  },
+  "Counter2CVRDependencyDataContact_DF2E_x3": {
+    "element_id": "mcact.internal.counter2cvrdependencydata",
+    "override": ""
+  },
+  "Counter2LowerLimit_DF1F_x1": {
+    "element_id": "mcash.internal.counter2lowerlimit",
+    "override": ""
+  },
+  "Counter2UpperLimit_DF21_x1": {
+    "element_id": "mcash.internal.counter2upperlimit",
+    "override": ""
+  },
+  "CryptogramVersionNumberV2x_DF63_x1": {
+    "element_id": "emv.fci.reservedtagdf63",
+    "override": "00"
+  },
+  "CVRIssuerDiscretionaryDataContact_DF3C_x1": {
+    "element_id": "mcact.internal.cvrissuerdiscretionarydata",
+    "override": ""
+  },
+  "DefaultARPCResponseCode_D6_x2": {
+    "element_id": "mcash.internal.defaultarpc",
+    "override": ""
+  },
+  "DS_Management_Control_DF41_x2": {
+    "element_id": "mcadssh.internal.dsmgmtcontrol",
+    "override": ""
+  },
+  "LogFormat_9F4F_x": {
+    "element_id": "mcalogsh.internal.logformat",
+    "override": ""
+  },
+  "MaximumTransactionAmountCurrencyCode_DF24_x2": {
+    "element_id": "mcash.internal.mtacurrencycode",
+    "override": ""
+  },
+  "MaximumTransactionAmountCVMContact_DF22_x6": {
+    "element_id": "mcact.internal.mtacvm",
+    "override": ""
+  },
+  "MaximumTransactionAmountNoCVMContact_DF25_x6": {
+    "element_id": "mcact.internal.mtanocvm",
+    "override": ""
+  },
+  "NumberOfDaysOfflineLimit_DF27_x2": {
+    "element_id": "mcashnbrdaysoffline.internal.nbrofdaysofflinelimit",
+    "override": ""
+  },
+  "PINDeciphermentsErrorCounterLimit_DF36_x2": {
+    "element_id": "mcapinencsh.internal.pindecipherrorcounterlimit",
+    "override": ""
+  },
+  "PTL_C6_x2": {
+    "element_id": "mcash.internal.pintrylimit",
+    "override": ""
+  },
+  "PIN_TryCounter_9F17_x1": {
+    "element_id": "emvnonmobilesh.internal.pintrycounter",
+    "override": ""
+  },
+  "LogDataTable_DE_x9": {
+    "element_id": "mcalogsh.internal.logdatatable",
+    "override": "000000000000000000"
+  },
+  "ReadRecordFilterContact_DF3F_x": {
+    "element_id": "mcact.internal.readrecordfilter",
+    "override": ""
+  },
+  "SMISessionKeyCounterLimitContact_DF32_x2": {
+    "element_id": "emv.fci.reservedtagdf32",
+    "override": "0400"
+  },
+  "ApplicationVersionNumber_9F08_x2": {
+    "element_id": "emvct.recordcontact.appversionnumber",
+    "override": ""
+  },
+  "SDA_TagList_9F4A_x1": {
+    "element_id": "offlinecamct.recordcontact.sdataglist",
+    "override": ""
+  },
+  "DDOL_9F49_x": {
+    "element_id": "offlinecamddact.recordcontact.ddol",
+    "override": ""
+  },
+  "IAC_Contact_Default_9F0D_x5": {
+    "element_id": "emvct.recordcontact.iacdefault",
+    "override": ""
+  },
+  "IAC_Contact_Denial_9F0E_x5": {
+    "element_id": "emvct.recordcontact.iacdenial",
+    "override": ""
+  },
+  "IAC_Contact_Online_9F0F_x5": {
+    "element_id": "emvct.recordcontact.iaconline",
+    "override": ""
+  },
+  "CDOL1_Contact_8C_x": {
+    "element_id": "emvct.recordcontact.cdol1",
+    "override": ""
+  },
+  "CDOL2_Contact_8D_x": {
+    "element_id": "emvct.recordcontact.cdol2",
+    "override": ""
+  },
+  "CVMC_ontact_List_8E_x": {
+    "element_id": "emvct.recordcontact.cvmlist",
+    "override": ""
+  },
+  "AUC_Contact_9F07_x2": {
+    "element_id": "emvnotauthct.recordcontact.appusagecontrol",
+    "override": ""
+  },
+  "Accumulator1CurrencyCode_9F42_C9_x2": {
+    "element_id": "emvct.recordcontact.appcurrencycode",
+    "override": ""
+  },
+  "Issuer_Country_Code_5F28_x2_CRMCountryCode_C8_x2": {
+    "element_id": "emvct.recordcontact.issuercountrycode",
+    "override": ""
+  },
+  "ApplicationInterchangeProfileContact_82_x2": {
+    "element_id": "emvct.internal.aip",
+    "override": ""
+  },
+  "ApplicationCurrencyExponent_9F44_x1": {
+    "element_id": "",
+    "override": "02"
+  },
+  "ACSessionKeyCounterLimitContactless_DF34_x2": {
+    "element_id": "emv.internal.aip",
+    "override": "4E20"
+  },
+  "Accumulator1ControlContactless_DF12_x1": {
+    "element_id": "mcacl.internal.acc1control",
+    "override": ""
+  },
+  "Accumulator1CVRDependencyDataContactless_DF29_x3": {
+    "element_id": "mcacl.internal.acc1cvrdependencydata",
+    "override": ""
+  },
+  "Accumulator2ControlContactless_DF15_x1": {
+    "element_id": "mcacl.internal.acc2control",
+    "override": ""
+  },
+  "Accumulator2CVRDependencyDataContactless_DF2B_x3": {
+    "element_id": "mcacl.internal.acc2cvrdependencydata",
+    "override": ""
+  },
+  "ApplicationControlContactless_D7_x6": {
+    "element_id": "mcacl.internal.appcontrol",
+    "override": ""
+  },
+  "ApplicationInterchangeProfileContactless_D8_x2": {
+    "element_id": "emvnonmobilecl.internal.aip",
+    "override": ""
+  },
+  "CIACDeclineContactless_CF_x3": {
+    "element_id": "mcacl.internal.ciacdecline",
+    "override": ""
+  },
+  "CIACDefaultContactless_CD_x3": {
+    "element_id": "mcacl.internal.ciacdefault",
+    "override": ""
+  },
+  "CIACOnlineContactless_CE_x3": {
+    "element_id": "mcacl.internal.ciaconline",
+    "override": ""
+  },
+  "Counter1ControlContactless_DF1B_x1": {
+    "element_id": "mcacl.internal.counter1control",
+    "override": ""
+  },
+  "Counter1CVRDependencyDataContactless_DF2D_x3": {
+    "element_id": "mcacl.internal.counter1cvrdependencydata",
+    "override": ""
+  },
+  "Counter2ControlContactless_DF1E_x1": {
+    "element_id": "mcacl.internal.counter2control",
+    "override": ""
+  },
+  "Counter2CVRDependencyDataContactless_DF2F_x3": {
+    "element_id": "mcacl.internal.counter2cvrdependencydata",
+    "override": ""
+  },
+  "CVRIssuerDiscretionaryDataContactless_DF3D_x1": {
+    "element_id": "mcacl.internal.cvrissuerdiscretionarydata",
+    "override": ""
+  },
+  "MaximumTransactionAmountCVMContactless_DF23_x6": {
+    "element_id": "mcacl.internal.mtacvm",
+    "override": ""
+  },
+  "MaximumTransactionAmountNoCVMContactless_DF26_x6": {
+    "element_id": "mcacl.internal.mtanocvm",
+    "override": ""
+  },
+  "ReadRecordFilterContactless_DF40_x": {
+    "element_id": "mcacl.internal.readrecordfilter",
+    "override": "18020200"
+  },
+  "SMISessionKeyCounterLimitContactless_DF33_x2": {
+    "element_id": "mcacl.internal.smisessionkeycounterlimit",
+    "override": ""
+  },
+  "AUC_Contactless_9F07_x2": {
+    "element_id": "emvnotauthct.recordcontact.appusagecontrol",
+    "override": ""
+  },
+  "CDOL1_Contactless_8C_x": {
+    "element_id": "emvcl.recordcontactless.cdol1",
+    "override": ""
+  },
+  "CDOL2_Contactless_8D_x": {
+    "element_id": "emvcl.recordcontactless.cdol2",
+    "override": ""
+  },
+  "CVM_List_Contactless_8E_x": {
+    "element_id": "emvcl.recordcontactless.cvmlist",
+    "override": ""
+  },
+  "IAC_Contactless_Default_9F0D_x5": {
+    "element_id": "emvcl.recordcontactless.iacdefault",
+    "override": ""
+  },
+  "IAC_Contactless_Denial_9F0E_x5": {
+    "element_id": "emvcl.recordcontactless.iacdenial",
+    "override": ""
+  },
+  "IAC_Contactless_Online_9F0F_x5": {
+    "element_id": "emvcl.recordcontactless.iaconline",
+    "override": ""
+  },
+  "ApplicationFileLocatorContact_94_x": {
+    "element_id": "emvct.internal.afl",
+    "override": "1801020120020300"
+  },
+  "ApplicationFileLocatorContactless_D9_x": {
+    "element_id": "emvnonmobilecl.internal.afl",
+    "override": "1001010120010200"
+  },
+  "eCARD_IcPersonalizer": {
+    "element_id": "",
+    "override": "1673"
+  },
+  "eCARD_MachineId": {
+    "element_id": "",
+    "override": "01007000"
+  },
+  "ApplicationLifeCycleData_9F7E_Alcd_Ver": {
+    "element_id": "emv.fci.reservedtag9f7e",
+    "override": "04"
+  },
+  "ApplicationLifeCycleData_9F7E_Alcd_TypApprvId": {
+    "element_id": "emv.fci.reservedtag9f7e",
+    "override": "100F1700020000"
+  },
+  "ApplicationLifeCycleData_9F7E_AppIssrId": {
+    "element_id": "emv.fci.reservedtag9f7e",
+    "override": "4445435441202020202020202020202020202020"
+  },
+  "ApplicationLifeCycleData_9F7EAlcd_AppCodeId": {
+    "element_id": "",
+    "override": "5441472051564A313244495F5376312E30202020"
+  },
+  "PTH_x1": {
+    "element_id": "",
+    "override": "00"
+  },
+  "eMCHIP_GenPkSiz": {
+    "element_id": "",
+    "override": "1408"
+  },
+  "eMCHIP_GenPkExp": {
+    "element_id": "",
+    "override": "03"
+  },
+  "ICC_PK_CertificateSerialNumber_x3": {
+    "element_id": "",
+    "override": "512345"
+  },
+  "FCI_BF0C_tlv": {
+    "element_id": "pse.fci.fciissuerdiscrdata",
+    "override": "9F4D020B0A9F6E0705780000323000"
+  },
+  "ApplicationPriorityIndicator_87_x1": {
+    "element_id": "emvapi.fci.apppriorityindicator",
+    "override": "01"
+  },
+  "IssuerCodeTableIndex_9F11_x1": {
+    "element_id": "",
+    "override": "01"
+  },
+  "PDOL_9F38": {
+    "element_id": "",
+    "override": "BLANK"
+  },
+  "ATCLimit_x2": {
+    "element_id": "",
+    "override": "4E20"
+  },
+  "KeyDerivationIndexContactContactless_DF68_x1": {
+    "element_id": "",
+    "override": "01"
+  },
+  "InterfaceEnablingSwitch_DF30_x1": {
+    "element_id": "emv.fci.reservedtagdf30",
+    "override": "03"
+  },
+  "MCHIPInterfaceIdentifierContact_x1": {
+    "element_id": "",
+    "override": "00"
+  },
+  "MCHIPInterfaceIdentifierContactless_x1": {
+    "element_id": "",
+    "override": "01"
+  },
+  "IVCVC3Track1Contact_DF38_x2": {
+    "element_id": "",
+    "override": "0000"
+  },
+  "IVCVC3Track2Contact_DF39_x2": {
+    "element_id": "",
+    "override": "0000"
+  },
+  "Application_Effective_Date_5F25": {
+    "element_id": "emvct.recordcontact.appeffectivedate",
+    "override": "CALCULATE_2"
+  },
+  "FCI_list": {
+    "element_id": "",
+    "override": "84,50,9F12,87,9F11,5F2D,BF0C"
+  },
+  "PsePerso": {
+    "element_id": "",
+    "override": "1"
+  },
+  "AID_4F_x": {
+    "element_id": "emv.fci.adfname",
+    "override": "A0000000041010"
+  },
+  "PAN_SequenceNumber_5F34_x1": {
+    "element_id": "emvct.recordcontact.pansequencenumber",
+    "override": "01"
+  },
+  "ServiceCode_5F30_x2": {
+    "element_id": "emvct.recordcontact.servicecode",
+    "override": "0201"
+  },
+  "DRDOL_9F51_x": {
+    "element_id": "emv.fci.reservedtag9f51",
+    "override": "9F3704"
+  }
+}
