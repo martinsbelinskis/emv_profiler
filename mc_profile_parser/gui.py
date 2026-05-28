@@ -986,8 +986,8 @@ def _visa_category_ok(category: str, prefix: str) -> bool:
 class VisaEnvExportTab(QWidget):
     """ENV Export tab for VISA profiles — mirrors EnvExportTab for MC."""
 
-    _ENV_COLS = ["ENV Variable", "Tag", "Prefix", "Profile Element", "Override Value", "Preview"]
-    _COL_VAR, _COL_TAG, _COL_PFX, _COL_ELEM, _COL_OVR, _COL_PREV = range(6)
+    _ENV_COLS = ["ENV Variable", "Tag", "Tmpl Tag", "Prefix", "Profile Element", "Override Value", "Preview"]
+    _COL_VAR, _COL_TAG, _COL_TTAG, _COL_PFX, _COL_ELEM, _COL_OVR, _COL_PREV = range(7)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1041,6 +1041,7 @@ class VisaEnvExportTab(QWidget):
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(self._COL_VAR,  QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(self._COL_TAG,  QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(self._COL_TTAG, QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(self._COL_PFX,  QHeaderView.ResizeMode.ResizeToContents)
         hdr.setSectionResizeMode(self._COL_ELEM, QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(self._COL_OVR,  QHeaderView.ResizeMode.Interactive)
@@ -1060,9 +1061,10 @@ class VisaEnvExportTab(QWidget):
                 item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
                 return item
 
-            self._table.setItem(row_idx, self._COL_VAR, _ro(entry.var_name))
-            self._table.setItem(row_idx, self._COL_TAG, _ro(entry.tag, Qt.AlignmentFlag.AlignCenter))
-            self._table.setItem(row_idx, self._COL_PFX, _ro(entry.prefix, Qt.AlignmentFlag.AlignCenter))
+            self._table.setItem(row_idx, self._COL_VAR,  _ro(entry.var_name))
+            self._table.setItem(row_idx, self._COL_TAG,  _ro(entry.tag,          Qt.AlignmentFlag.AlignCenter))
+            self._table.setItem(row_idx, self._COL_TTAG, _ro(entry.template_tag, Qt.AlignmentFlag.AlignCenter))
+            self._table.setItem(row_idx, self._COL_PFX,  _ro(entry.prefix,       Qt.AlignmentFlag.AlignCenter))
 
             combo = QComboBox()
             combo.addItem(_NOT_MAPPED)
@@ -1123,6 +1125,7 @@ class VisaEnvExportTab(QWidget):
             visible = (
                 low in _cell(self._COL_VAR)
                 or low in _cell(self._COL_TAG)
+                or low in _cell(self._COL_TTAG)
                 or low in _cell(self._COL_PFX)
                 or low in _cell(self._COL_PREV)
                 or low in _cell(self._COL_OVR)
@@ -1150,10 +1153,16 @@ class VisaEnvExportTab(QWidget):
             if not matched and entry.tag:
                 for i, (eid, _) in enumerate(self._elem_options, start=1):
                     row = self._id_to_row.get(eid)
-                    if row and row.tag == entry.tag and _visa_category_ok(row.category, entry.prefix):
-                        combo.setCurrentIndex(i)
-                        matched = True
-                        break
+                    if not row or row.tag != entry.tag:
+                        continue
+                    if not _visa_category_ok(row.category, entry.prefix):
+                        continue
+                    # When the entry specifies a template_tag, require an exact match
+                    if entry.template_tag and row.template_tag != entry.template_tag:
+                        continue
+                    combo.setCurrentIndex(i)
+                    matched = True
+                    break
 
             combo.blockSignals(False)
 
