@@ -298,3 +298,173 @@ def export_env_comparison_csv(rows: list[EnvCompareRow], output: io.TextIOBase) 
     """Write EnvCompareRow list to a CSV file-like object."""
     _write_csv(output, [f.name for f in fields(EnvCompareRow)],
                [{f.name: getattr(r, f.name) for f in fields(EnvCompareRow)} for r in rows])
+
+
+# ── VISA XML profile parsing & comparison ─────────────────────────────────────
+
+@dataclass
+class VisaElementRow:
+    tag: str
+    template_tag: str   # empty string if no <templatetag> element
+    name: str
+    category: str       # "VSDC", "qVSDC", "VSDC & qVSDC"
+    path: str           # e.g. "[ContactChip,SelectContactlessADF]"
+    dgi: str            # e.g. "9115" or ""
+    length: str         # hex length, e.g. "07"
+    value: str          # hex value
+
+
+@dataclass
+class VisaComparisonRow:
+    status: str         # identical | different | only_in_1 | only_in_2
+    tag: str
+    template_tag: str
+    name: str
+    category: str
+    path: str
+    dgi: str
+    value_1: str
+    value_2: str
+    changed_fields: str  # "value", "length", or both
+
+
+def _visa_elem_id(row: VisaElementRow) -> str:
+    """Composite key used as a unique row ID for VISA elements."""
+    return f"{row.tag}|{row.template_tag}|{row.path}"
+
+
+def parse_visa_profile(
+    profile_path: str | Path,
+    *,
+    include_empty: bool = False,
+) -> list[VisaElementRow]:
+    """Parse a VISA XML profile and return a list of VisaElementRow.
+
+    Args:
+        profile_path: Path to the plain XML file (not a ZIP).
+        include_empty: When True, elements with an empty ``<tagvalue>`` are
+                       included (useful for accurate profile comparison).
+    """
+    path = Path(profile_path)
+    if not path.exists():
+        raise FileNotFoundError(f"VISA profile not found: {profile_path}")
+
+    tree = ET.parse(str(path))
+    root = tree.getroot()
+
+    rows: list[VisaElementRow] = []
+    for te in root.iter("tagelement"):
+        tag = _text(te, "tag").upper()
+        value = _text(te, "tagvalue")
+        if not include_empty and not value:
+            continue
+        tn = te.find("tagname")
+        name = (tn.text or "").strip() if tn is not None else ""
+        category = tn.get("category", "") if tn is not None else ""
+        path_attr = tn.get("path", "") if tn is not None else ""
+        dgi = tn.get("dgi", "") if tn is not None else ""
+        rows.append(VisaElementRow(
+            tag=tag,
+            template_tag=_text(te, "templatetag").upper(),
+            name=name,
+            category=category,
+            path=path_attr,
+            dgi=dgi,
+            length=_text(te, "taglength"),
+            value=value,
+        ))
+    return rows
+
+
+def compare_visa_profiles(
+    rows_1: list[VisaElementRow],
+    rows_2: list[VisaElementRow],
+) -> list[VisaComparisonRow]:
+    """Compare two parsed VISA profiles.
+
+    Elements are matched by the composite key ``(tag, template_tag, path)``.
+    """
+    def _keyed(rows: list[VisaElementRow]) -> dict[tuple, VisaElementRow]:
+        result: dict[tuple, VisaElementRow] = {}
+        for row in rows:
+            key = (row.tag, row.template_tag, row.path)
+            result[key] = row
+        return result
+
+    map_1 = _keyed(rows_1)
+    map_2 = _keyed(rows_2)
+    all_keys = sorted(set(map_1) | set(map_2))
+
+    result: list[VisaComparisonRow] = []
+    for key in all_keys:
+        r1 = map_1.get(key)
+        r2 = map_2.get(key)
+        ref = r1 or r2
+        assert ref is not None
+
+        if r1 and r2:
+            changed = [f for f in ("value", "length") if getattr(r1, f) != getattr(r2, f)]
+            result.append(VisaComparisonRow(
+                status="different" if changed else "identical",
+                tag=ref.tag, template_tag=ref.template_tag, name=ref.name,
+                category=ref.category, path=ref.path, dgi=ref.dgi,
+                value_1=r1.value, value_2=r2.value,
+                changed_fields=", ".join(changed),
+            ))
+        elif r1:
+            result.append(VisaComparisonRow(
+                status="only_in_1",
+                tag=ref.tag, template_tag=ref.template_tag, name=ref.name,
+                category=ref.category, path=ref.path, dgi=ref.dgi,
+                value_1=r1.value, value_2="", changed_fields="",
+            ))
+        else:
+            assert r2
+            result.append(VisaComparisonRow(
+                status="only_in_2",
+                tag=ref.tag, template_tag=ref.template_tag, name=ref.name,
+                category=ref.category, path=ref.path, dgi=ref.dgi,
+                value_1="", value_2=r2.value, changed_fields="",
+            ))
+    return result
+
+
+def export_visa_csv(rows: list[VisaElementRow], output: io.TextIOBase) -> None:
+    """Write VisaElementRow list to a CSV file-like object."""
+    _write_csv(output, [f.name for f in fields(VisaElementRow)],
+               [{f.name: getattr(r, f.name) for f in fields(VisaElementRow)} for r in rows])
+
+
+def export_visa_comparison_csv(rows: list[VisaComparisonRow], output: io.TextIOBase) -> None:
+    """Write VisaComparisonRow list to a CSV file-like object."""
+    _write_csv(output, [f.name for f in fields(VisaComparisonRow)],
+               [{f.name: getattr(r, f.name) for f in fields(VisaComparisonRow)} for r in rows])
+
+
+def export_visa_env(
+    entries: "list[VisaEnvEntry]",
+    mapping: dict[str, str],       # {var_name -> elem_id (composite key)}
+    overrides: dict[str, str],     # {var_name -> manual override (priority)}
+    id_to_row: dict[str, VisaElementRow],
+    output: io.TextIOBase,
+) -> None:
+    """Write a VISA .env file from template, mapping, overrides and profile data.
+
+    Priority: override value > profile-mapped value > empty string.
+    ASCII decoding (VisaEnvEntry.decode_ascii=True) converts hex tagvalue to
+    latin-1 text for tags such as 50 (Application Label).
+    """
+    for entry in entries:
+        override = overrides.get(entry.var_name, "").strip()
+        if override:
+            display_val = override
+        else:
+            elem_id = mapping.get(entry.var_name, "")
+            row = id_to_row.get(elem_id)
+            hex_val = row.value if row else ""
+            if hex_val and entry.decode_ascii:
+                display_val = _hex_to_display(hex_val, "a")
+            else:
+                display_val = hex_val
+        safe_val = display_val.replace("\\", "\\\\").replace('"', '\\"')
+        output.write(f'{entry.var_name} = "{safe_val}"\n')
