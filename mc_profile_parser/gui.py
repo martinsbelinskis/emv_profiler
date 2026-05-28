@@ -11,7 +11,7 @@ from PyQt6.QtCore import Qt, QSortFilterProxyModel, QModelIndex
 from PyQt6.QtGui import QColor, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QApplication,
-    QComboBox,
+    QButtonGroup,
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
@@ -48,12 +48,13 @@ STATUS_COLORS: dict[str, QColor] = {
     "only_in_2":  QColor("#BBDEFB"),
 }
 
-STATUS_FILTER_OPTIONS: list[tuple[str, str | None]] = [
-    ("All statuses", None),
-    ("Different only", "different"),
-    ("Only in Profile 1", "only_in_1"),
-    ("Only in Profile 2", "only_in_2"),
-    ("Identical only", "identical"),
+# (button label, status value or None for "All", hex color)
+FILTER_BUTTONS: list[tuple[str, str | None, str]] = [
+    ("All",         None,        "#E0E0E0"),
+    ("Identical",   "identical", STATUS_COLORS["identical"].name()),
+    ("Different",   "different", STATUS_COLORS["different"].name()),
+    ("Only in P1",  "only_in_1", STATUS_COLORS["only_in_1"].name()),
+    ("Only in P2",  "only_in_2", STATUS_COLORS["only_in_2"].name()),
 ]
 
 TAB_P1  = 0
@@ -119,20 +120,40 @@ def _simple_proxy(model: QStandardItemModel) -> QSortFilterProxyModel:
     return p
 
 
-def _legend_widget() -> QWidget:
-    w = QWidget()
-    layout = QHBoxLayout(w)
+def _make_color_filter_bar() -> tuple[QWidget, QButtonGroup]:
+    """Return a bar of checkable colored buttons + the QButtonGroup that owns them.
+
+    The buttons act as exclusive status filters for the Comparison tab and
+    simultaneously serve as a color legend.
+    """
+    bar = QWidget()
+    layout = QHBoxLayout(bar)
     layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(12)
-    layout.addWidget(QLabel("Legend:"))
-    for status, color in STATUS_COLORS.items():
-        swatch = QLabel("  ")
-        swatch.setStyleSheet(f"background:{color.name()}; border:1px solid #aaa;")
-        label = QLabel(status.replace("_", " ").title())
-        layout.addWidget(swatch)
-        layout.addWidget(label)
+    layout.setSpacing(6)
+    layout.addWidget(QLabel("Filter / Legend:"))
+
+    group = QButtonGroup(bar)
+    group.setExclusive(True)
+
+    for idx, (label, _status, color) in enumerate(FILTER_BUTTONS):
+        btn = QPushButton(label)
+        btn.setCheckable(True)
+        btn.setChecked(idx == 0)  # "All" checked by default
+        btn.setStyleSheet(
+            f"QPushButton {{"
+            f"  background: {color}; border: 2px solid transparent;"
+            f"  border-radius: 4px; padding: 3px 10px;"
+            f"}}"
+            f"QPushButton:checked {{"
+            f"  border: 2px solid #444; font-weight: bold;"
+            f"}}"
+            f"QPushButton:hover {{ border: 2px solid #888; }}"
+        )
+        group.addButton(btn, idx)
+        layout.addWidget(btn)
+
     layout.addStretch()
-    return w
+    return bar, group
 
 
 class MainWindow(QMainWindow):
@@ -229,14 +250,6 @@ class MainWindow(QMainWindow):
         self._filter_edit.textChanged.connect(self._on_filter_text)
         bottom.addWidget(self._filter_edit)
 
-        self._status_combo = QComboBox()
-        self._status_combo.setFixedWidth(175)
-        for label, _ in STATUS_FILTER_OPTIONS:
-            self._status_combo.addItem(label)
-        self._status_combo.currentIndexChanged.connect(self._on_status_filter)
-        self._status_combo.setVisible(False)
-        bottom.addWidget(self._status_combo)
-
         self._export_btn = QPushButton("Export CSV…")
         self._export_btn.setFixedWidth(120)
         self._export_btn.setEnabled(False)
@@ -244,7 +257,11 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self._export_btn)
 
         vbox.addLayout(bottom)
-        vbox.addWidget(_legend_widget())
+
+        # Color filter / legend bar (always visible; filters apply to Comparison tab)
+        self._color_bar, self._filter_btn_group = _make_color_filter_bar()
+        self._filter_btn_group.idClicked.connect(self._on_color_filter)
+        vbox.addWidget(self._color_bar)
 
         # Connect tab signal now that all child widgets exist
         self._tabs.currentChanged.connect(self._on_tab_changed)
@@ -353,16 +370,19 @@ class MainWindow(QMainWindow):
         else:
             self._proxy_cmp.set_text(text)
 
-    def _on_status_filter(self, index: int) -> None:
-        _, status = STATUS_FILTER_OPTIONS[index]
+    def _on_color_filter(self, btn_id: int) -> None:
+        """Apply the status filter for the clicked color button."""
+        _, status, _ = FILTER_BUTTONS[btn_id]
         self._proxy_cmp.set_status(status)
+        # Switch to comparison tab so the effect is immediately visible
+        self._tabs.setCurrentIndex(TAB_CMP)
 
     def _on_tab_changed(self, index: int) -> None:
         self._filter_edit.clear()
-        is_cmp = index == TAB_CMP
-        self._status_combo.setVisible(is_cmp)
-        if is_cmp:
-            self._status_combo.setCurrentIndex(0)
+        # Reset color filter buttons to "All" when leaving comparison tab
+        if index != TAB_CMP:
+            self._filter_btn_group.button(0).setChecked(True)
+            self._proxy_cmp.set_status(None)
         has_data = (
             (index == TAB_P1 and bool(self._rows_1))
             or (index == TAB_P2 and bool(self._rows_2))
@@ -392,6 +412,8 @@ class MainWindow(QMainWindow):
     def _clear_comparison(self) -> None:
         self._cmp_rows = []
         self._model_cmp.setRowCount(0)
+        self._filter_btn_group.button(0).setChecked(True)
+        self._proxy_cmp.set_status(None)
         if self._tabs.currentIndex() == TAB_CMP:
             self._export_btn.setEnabled(False)
 
