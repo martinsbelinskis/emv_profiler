@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QTabWidget,
@@ -33,27 +34,41 @@ from PyQt6.QtWidgets import (
 )
 
 import json
+from decimal import Decimal
 
+from emv_profiler.d2_builder import (
+    DEFAULT_BASE,
+    CurrencyRate,
+    build_d2_value,
+    cross_rate,
+    default_decimals,
+    encode_entry,
+    load_currency_rates,
+)
 from emv_profiler.env_template import ENV_TEMPLATE, EnvEntry
 from emv_profiler.visa_env_template import VISA_ENV_TEMPLATE, VisaEnvEntry
 from emv_profiler.parser import (
     ComparisonRow,
     DataElementRow,
     EnvCompareRow,
+    QuestionComparisonRow,
     VisaElementRow,
     VisaComparisonRow,
     compare_profiles,
     compare_visa_profiles,
     compare_env_files,
+    compare_questionary_csv,
     export_comparison_csv,
     export_csv,
     export_env,
     export_env_comparison_csv,
+    export_questionary_comparison_csv,
     export_visa_csv,
     export_visa_comparison_csv,
     export_visa_env,
     parse_env_file,
     parse_profile,
+    parse_questionary_csv,
     parse_visa_profile,
     _visa_elem_id,
 )
@@ -699,6 +714,184 @@ class EnvCompareTab(QWidget):
                 QStandardItem(row.variable),
                 QStandardItem(row.value_1),
                 QStandardItem(row.value_2),
+                QStandardItem(row.status),
+            ]
+            for item in items:
+                item.setBackground(color)
+            self._model.appendRow(items)
+
+
+class QuestionaryCompareTab(QWidget):
+    """Tab for comparing two 'AnsweredQuestions' export CSV files."""
+
+    _COLS = ["Category", "Option", "Question", "Answer 1", "Answer 2", "Status"]
+    _COL_CAT, _COL_OPT, _COL_Q, _COL_A1, _COL_A2, _COL_STATUS = range(6)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._rows: list[QuestionComparisonRow] = []
+        self._file_names: list[str] = ["File 1", "File 2"]
+        self._build_ui()
+
+    # ── construction ──────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        # File picker rows
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(4)
+        self._path_edit: list[QLineEdit] = []
+        for i in range(2):
+            n = i + 1
+            lbl = QLabel(f"AnsweredQuestions CSV {n}:")
+            edit = QLineEdit()
+            edit.setPlaceholderText(f"Select AnsweredQuestions CSV {n}…")
+            edit.setReadOnly(True)
+            browse = QPushButton("Browse…")
+            browse.setFixedWidth(85)
+            browse.clicked.connect(lambda _, idx=i: self._browse(idx))
+            grid.addWidget(lbl,    i, 0)
+            grid.addWidget(edit,   i, 1)
+            grid.addWidget(browse, i, 2)
+            self._path_edit.append(edit)
+
+        self._compare_btn = QPushButton("⚡ Compare")
+        self._compare_btn.setFixedWidth(110)
+        self._compare_btn.setEnabled(False)
+        self._compare_btn.clicked.connect(self._do_compare)
+        grid.addWidget(self._compare_btn, 0, 3, 2, 1, Qt.AlignmentFlag.AlignVCenter)
+        layout.addLayout(grid)
+
+        # Color filter bar
+        filter_bar, self._filter_group = _make_color_filter_bar()
+        self._filter_group.idClicked.connect(self._on_color_filter)
+        layout.addWidget(filter_bar)
+
+        # Text filter
+        text_row = QHBoxLayout()
+        text_row.addWidget(QLabel("Filter:"))
+        self._filter_edit = QLineEdit()
+        self._filter_edit.setPlaceholderText("Search across all columns…")
+        self._filter_edit.textChanged.connect(self._on_text_filter)
+        text_row.addWidget(self._filter_edit)
+        layout.addLayout(text_row)
+
+        # Table
+        self._model = _make_model(self._COLS)
+        self._proxy = _StatusFilterProxy(status_col=self._COL_STATUS)
+        self._proxy.setSourceModel(self._model)
+        self._table = _make_table()
+        self._table.setModel(self._proxy)
+        layout.addWidget(self._table)
+
+        # Status + export bar
+        bottom = QHBoxLayout()
+        self._status_lbl = QLabel("")
+        bottom.addWidget(self._status_lbl)
+        bottom.addStretch()
+        self._export_btn = QPushButton("Export CSV…")
+        self._export_btn.setFixedWidth(120)
+        self._export_btn.setEnabled(False)
+        self._export_btn.clicked.connect(self._export_csv)
+        bottom.addWidget(self._export_btn)
+        layout.addLayout(bottom)
+
+    # ── slots ─────────────────────────────────────────────────────────────
+
+    def _browse(self, idx: int) -> None:
+        with _suppress_glib_stderr():
+            path, _ = QFileDialog.getOpenFileName(
+                self, f"Select AnsweredQuestions CSV {idx + 1}",
+                str(Path.home()),
+                "CSV files (*.csv);;All files (*)",
+            )
+        if path:
+            self._path_edit[idx].setText(path)
+            self._file_names[idx] = Path(path).name
+            self._compare_btn.setEnabled(
+                bool(self._path_edit[0].text() and self._path_edit[1].text())
+            )
+
+    def _do_compare(self) -> None:
+        p1 = self._path_edit[0].text().strip()
+        p2 = self._path_edit[1].text().strip()
+        if not p1 or not p2:
+            return
+        try:
+            rows_1 = parse_questionary_csv(p1)
+            rows_2 = parse_questionary_csv(p2)
+        except Exception as exc:
+            QMessageBox.critical(self, "Parse error", str(exc))
+            return
+
+        self._rows = compare_questionary_csv(rows_1, rows_2)
+        self._fill_model()
+        self._export_btn.setEnabled(True)
+
+        counts = {s: 0 for s in STATUS_COLORS}
+        for r in self._rows:
+            counts[r.status] = counts.get(r.status, 0) + 1
+        self._status_lbl.setText(
+            f"{counts['different']} different · "
+            f"{counts['only_in_1']} only in F1 · "
+            f"{counts['only_in_2']} only in F2 · "
+            f"{counts['identical']} identical"
+        )
+
+    def _on_color_filter(self, btn_id: int) -> None:
+        _, status, _ = FILTER_BUTTONS[btn_id]
+        self._proxy.set_status(status)
+
+    def _on_text_filter(self, text: str) -> None:
+        self._proxy.set_text(text)
+
+    def _export_csv(self) -> None:
+        # Export visible (filtered) rows
+        visible: list[QuestionComparisonRow] = []
+        for proxy_row in range(self._proxy.rowCount()):
+            src_row = self._proxy.mapToSource(self._proxy.index(proxy_row, 0)).row()
+            visible.append(self._rows[src_row])
+
+        with _suppress_glib_stderr():
+            dest, _ = QFileDialog.getSaveFileName(
+                self, "Export Questionary Comparison",
+                str(Path.home() / "questionary_comparison.csv"),
+                "CSV files (*.csv);;All files (*)",
+            )
+        if not dest:
+            return
+        try:
+            with open(dest, "w", newline="", encoding="utf-8") as f:
+                export_questionary_comparison_csv(visible, f)
+            QMessageBox.information(self, "Export complete",
+                                    f"Exported {len(visible)} rows to:\n{dest}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Export error", str(exc))
+
+    # ── helpers ───────────────────────────────────────────────────────────
+
+    def _fill_model(self) -> None:
+        self._model.setHorizontalHeaderLabels([
+            "Category",
+            "Option",
+            "Question",
+            self._file_names[0],
+            self._file_names[1],
+            "Status",
+        ])
+        self._model.setRowCount(0)
+        for row in self._rows:
+            color = STATUS_COLORS.get(row.status, QColor("white"))
+            items = [
+                QStandardItem(row.category),
+                QStandardItem(row.option),
+                QStandardItem(row.question),
+                QStandardItem(row.answer_1),
+                QStandardItem(row.answer_2),
                 QStandardItem(row.status),
             ]
             for item in items:
@@ -1587,6 +1780,276 @@ class VisaTab(QWidget):
         return dest
 
 
+# ── D2 Tag (Common Currency table) Tab ────────────────────────────────────────
+
+class D2TagTab(QWidget):
+    """Builds the D2 tag value (Common Currency table) from a currency-rate CSV."""
+
+    _COLS = ["Use", "#", "Code", "Num", "Currency", "Per USD", "Rate", "Decimals", "Entry"]
+    _C_USE, _C_ORD, _C_CODE, _C_NUM, _C_NAME, _C_USD, _C_RATE, _C_DEC, _C_ENTRY = range(9)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._rates: dict[str, CurrencyRate] = {}
+        self._row_of: dict[str, int] = {}
+        self._order: list[str] = []          # selected numeric codes, in output order
+        self._dec_override: dict[str, int] = {}
+        self._updating = False
+        self._build_ui()
+        default = Path.cwd() / "moneymaster.csv"
+        if default.is_file():
+            self._load_csv(str(default))
+
+    # ── construction ──────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        top = QHBoxLayout()
+        top.addWidget(QLabel("Rates CSV:"))
+        self._path_edit = QLineEdit()
+        self._path_edit.setReadOnly(True)
+        self._path_edit.setPlaceholderText("Select moneymaster.csv…")
+        top.addWidget(self._path_edit, 1)
+        browse = QPushButton("Browse…")
+        browse.setFixedWidth(85)
+        browse.clicked.connect(self._browse)
+        top.addWidget(browse)
+        top.addSpacing(12)
+        top.addWidget(QLabel("Base currency:"))
+        self._base_combo = QComboBox()
+        self._base_combo.setMinimumWidth(180)
+        self._base_combo.currentIndexChanged.connect(self._recalculate)
+        top.addWidget(self._base_combo)
+        layout.addLayout(top)
+
+        filt = QHBoxLayout()
+        filt.addWidget(QLabel("Filter:"))
+        self._filter_edit = QLineEdit()
+        self._filter_edit.setPlaceholderText("Search code, number or name…")
+        self._filter_edit.textChanged.connect(self._apply_filter)
+        filt.addWidget(self._filter_edit)
+        clear = QPushButton("Clear selection")
+        clear.clicked.connect(self._clear_selection)
+        filt.addWidget(clear)
+        layout.addLayout(filt)
+
+        self._table = QTableWidget(0, len(self._COLS))
+        self._table.setHorizontalHeaderLabels(self._COLS)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        hdr = self._table.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(self._C_NAME, QHeaderView.ResizeMode.Stretch)
+        self._table.itemChanged.connect(self._on_item_changed)
+        layout.addWidget(self._table, 1)
+
+        layout.addWidget(QLabel("D2 tag value (entries in selection order; "
+                                "Rate = base currency units per 1 unit of currency):"))
+        self._out = QPlainTextEdit()
+        self._out.setReadOnly(True)
+        self._out.setFixedHeight(80)
+        self._out.setStyleSheet("font-family: monospace;")
+        layout.addWidget(self._out)
+
+        bottom = QHBoxLayout()
+        self._status_lbl = QLabel("")
+        bottom.addWidget(self._status_lbl)
+        bottom.addStretch()
+        self._copy_btn = QPushButton("Copy")
+        self._copy_btn.setFixedWidth(100)
+        self._copy_btn.clicked.connect(self._copy)
+        bottom.addWidget(self._copy_btn)
+        self._save_btn = QPushButton("Save…")
+        self._save_btn.setFixedWidth(100)
+        self._save_btn.clicked.connect(self._save)
+        bottom.addWidget(self._save_btn)
+        layout.addLayout(bottom)
+        self._refresh_output()
+
+    # ── data loading ──────────────────────────────────────────────────────
+
+    def _browse(self) -> None:
+        with _suppress_glib_stderr():
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Select rates CSV", str(Path.home()),
+                "CSV files (*.csv);;All files (*)",
+            )
+        if path:
+            self._load_csv(path)
+
+    def _load_csv(self, path: str) -> None:
+        try:
+            rates = load_currency_rates(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load error", str(exc))
+            return
+        if not rates:
+            QMessageBox.warning(self, "No rates", "No currency rates found in the file.")
+            return
+        self._rates = rates
+        self._order.clear()
+        self._dec_override.clear()
+        self._path_edit.setText(path)
+
+        items = sorted(rates.values(), key=lambda r: r.code)
+        self._updating = True
+        try:
+            self._base_combo.blockSignals(True)
+            self._base_combo.clear()
+            for r in items:
+                self._base_combo.addItem(f"{r.code} ({r.numeric}) — {r.name}", r.numeric)
+            idx = self._base_combo.findData(DEFAULT_BASE)
+            self._base_combo.setCurrentIndex(max(idx, 0))
+            self._base_combo.blockSignals(False)
+
+            self._table.setRowCount(len(items))
+            self._row_of = {}
+            for row, r in enumerate(items):
+                self._row_of[r.numeric] = row
+                use = QTableWidgetItem()
+                use.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+                use.setCheckState(Qt.CheckState.Unchecked)
+                use.setData(Qt.ItemDataRole.UserRole, r.numeric)
+                self._table.setItem(row, self._C_USE, use)
+                for col, text in ((self._C_CODE, r.code), (self._C_NUM, r.numeric),
+                                  (self._C_NAME, r.name), (self._C_USD, f"{r.per_usd:f}")):
+                    self._table.setItem(row, col, self._ro(text))
+                for col in (self._C_ORD, self._C_RATE, self._C_ENTRY):
+                    self._table.setItem(row, col, self._ro(""))
+                dec = QTableWidgetItem("")
+                dec.setToolTip("Override decimals (0-15); leave empty for automatic")
+                self._table.setItem(row, self._C_DEC, dec)
+        finally:
+            self._updating = False
+        self._recalculate()
+        self._apply_filter(self._filter_edit.text())
+
+    @staticmethod
+    def _ro(text: str) -> QTableWidgetItem:
+        it = QTableWidgetItem(text)
+        it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        return it
+
+    # ── calculation ───────────────────────────────────────────────────────
+
+    def _base(self) -> CurrencyRate | None:
+        return self._rates.get(self._base_combo.currentData() or "")
+
+    def _entry_for(self, base: CurrencyRate, numeric: str) -> tuple[Decimal, int, str | None, str]:
+        """Return (rate, decimals, hex entry or None, error text)."""
+        rate = cross_rate(base, self._rates[numeric])
+        dec = self._dec_override.get(numeric)
+        try:
+            decimals = default_decimals(rate) if dec is None else dec
+            return rate, decimals, encode_entry(numeric, rate, decimals), ""
+        except ValueError as exc:
+            return rate, dec if dec is not None else 0, None, str(exc)
+
+    def _recalculate(self) -> None:
+        base = self._base()
+        if base is None:
+            return
+        self._updating = True
+        try:
+            for numeric, row in self._row_of.items():
+                rate, decimals, entry, err = self._entry_for(base, numeric)
+                self._table.item(row, self._C_RATE).setText(f"{rate:.6f}")
+                auto = self._table.item(row, self._C_DEC)
+                if numeric not in self._dec_override:
+                    auto.setText("")
+                    auto.setToolTip(f"Automatic: {decimals} (type 0-15 to override)")
+                self._table.item(row, self._C_ENTRY).setText(entry or f"⚠ {err}")
+                pos = self._order.index(numeric) + 1 if numeric in self._order else ""
+                self._table.item(row, self._C_ORD).setText(str(pos))
+        finally:
+            self._updating = False
+        self._refresh_output()
+
+    def _refresh_output(self) -> None:
+        base = self._base()
+        entries: list[str] = []
+        errors: list[str] = []
+        if base is not None:
+            for numeric in self._order:
+                _, _, entry, err = self._entry_for(base, numeric)
+                if entry is None:
+                    errors.append(f"{self._rates[numeric].code}: {err}")
+                else:
+                    entries.append(entry)
+        value = build_d2_value(entries)
+        self._out.setPlainText(value)
+        msg = f"{len(entries)} currencies, {len(value) // 2} bytes"
+        if errors:
+            msg += " — skipped: " + "; ".join(errors)
+        self._status_lbl.setText(msg)
+        has = bool(value)
+        self._copy_btn.setEnabled(has)
+        self._save_btn.setEnabled(has)
+
+    # ── slots ─────────────────────────────────────────────────────────────
+
+    def _on_item_changed(self, item: QTableWidgetItem) -> None:
+        if self._updating:
+            return
+        if item.column() == self._C_USE:
+            numeric = item.data(Qt.ItemDataRole.UserRole)
+            checked = item.checkState() == Qt.CheckState.Checked
+            if checked and numeric not in self._order:
+                self._order.append(numeric)
+            elif not checked and numeric in self._order:
+                self._order.remove(numeric)
+            self._recalculate()
+        elif item.column() == self._C_DEC:
+            numeric = self._table.item(item.row(), self._C_USE).data(Qt.ItemDataRole.UserRole)
+            text = item.text().strip()
+            if not text:
+                self._dec_override.pop(numeric, None)
+            elif text.isdigit() and int(text) <= 15:
+                self._dec_override[numeric] = int(text)
+            else:
+                self._updating = True
+                item.setText(str(self._dec_override[numeric]) if numeric in self._dec_override else "")
+                self._updating = False
+            self._recalculate()
+
+    def _apply_filter(self, text: str) -> None:
+        low = text.strip().lower()
+        for row in range(self._table.rowCount()):
+            hay = " ".join(self._table.item(row, c).text().lower()
+                           for c in (self._C_CODE, self._C_NUM, self._C_NAME))
+            self._table.setRowHidden(row, bool(low) and low not in hay)
+
+    def _clear_selection(self) -> None:
+        self._order.clear()
+        self._updating = True
+        try:
+            for row in range(self._table.rowCount()):
+                self._table.item(row, self._C_USE).setCheckState(Qt.CheckState.Unchecked)
+        finally:
+            self._updating = False
+        self._recalculate()
+
+    def _copy(self) -> None:
+        QApplication.clipboard().setText(self._out.toPlainText())
+
+    def _save(self) -> None:
+        with _suppress_glib_stderr():
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Save D2 value", str(Path.home() / "D2_tag.txt"),
+                "Text files (*.txt);;All files (*)",
+            )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self._out.toPlainText() + "\n")
+        except Exception as exc:
+            QMessageBox.critical(self, "Save error", str(exc))
+
+
 # ── Main Window ───────────────────────────────────────────────────────────────
 
 def _make_placeholder_tab(message: str) -> QWidget:
@@ -1627,6 +2090,12 @@ class MainWindow(QMainWindow):
 
         # ── ENV Compare tab (top-level, not card-scheme specific) ──
         outer.addTab(EnvCompareTab(), "🔀  ENV Compare")
+
+        # ── Questionary Compare tab (AnsweredQuestions CSV exports) ──
+        outer.addTab(QuestionaryCompareTab(), "📝  Questionary Compare")
+
+        # ── D2 Tag tab (Common Currency table builder) ──
+        outer.addTab(D2TagTab(), "💱  D2 Tag")
 
         vbox.addWidget(outer)
 

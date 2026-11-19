@@ -9,13 +9,18 @@ from emv_profiler.parser import (
     ComparisonRow,
     DataElementRow,
     EnvCompareRow,
+    QuestionComparisonRow,
+    QuestionRow,
     compare_profiles,
     compare_env_files,
+    compare_questionary_csv,
     export_comparison_csv,
     export_csv,
     export_env_comparison_csv,
+    export_questionary_comparison_csv,
     parse_env_file,
     parse_profile,
+    parse_questionary_csv,
 )
 
 # ── fixtures / helpers ────────────────────────────────────────────────────────
@@ -268,5 +273,94 @@ def test_export_env_comparison_csv():
     export_env_comparison_csv(rows, buf)
     text = buf.getvalue()
     assert "variable,value_1,value_2,status" in text
-    assert "different" in text
-    assert "only_in_1" in text
+
+
+# ── parse_questionary_csv tests ───────────────────────────────────────────────
+
+def _write_questionary_csv(path, rows):
+    lines = ["Category,Option,Question,Answer"]
+    for cat, opt, q, ans in rows:
+        lines.append(f'"{cat}","{opt}","{q}","{ans}"')
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_parse_questionary_csv_basic(tmp_path):
+    csv_file = tmp_path / "AnsweredQuestions.csv"
+    _write_questionary_csv(csv_file, [
+        ("Profile Configuration", "Profile Questions", "What currency?", "(Euro)"),
+    ])
+    rows = parse_questionary_csv(csv_file)
+    assert rows == [QuestionRow(
+        category="Profile Configuration",
+        option="Profile Questions",
+        question="What currency?",
+        answer="(Euro)",
+    )]
+
+
+def test_parse_questionary_csv_file_not_found():
+    with pytest.raises(FileNotFoundError):
+        parse_questionary_csv("does/not/exist.csv")
+
+
+# ── compare_questionary_csv tests ─────────────────────────────────────────────
+
+def test_compare_questionary_identical():
+    rows = [QuestionRow(category="C", option="O", question="Q1?", answer="A")]
+    result = compare_questionary_csv(rows, rows)
+    assert len(result) == 1
+    assert result[0].status == "identical"
+
+
+def test_compare_questionary_different_answer():
+    r1 = [QuestionRow(category="C", option="O", question="Q1?", answer="A")]
+    r2 = [QuestionRow(category="C", option="O", question="Q1?", answer="B")]
+    result = compare_questionary_csv(r1, r2)
+    assert result[0].status == "different"
+    assert result[0].answer_1 == "A"
+    assert result[0].answer_2 == "B"
+
+
+def test_compare_questionary_only_in_1():
+    r1 = [QuestionRow(category="C", option="O", question="Q1?", answer="A")]
+    result = compare_questionary_csv(r1, [])
+    assert result[0].status == "only_in_1"
+    assert result[0].answer_1 == "A"
+    assert result[0].answer_2 == ""
+
+
+def test_compare_questionary_only_in_2():
+    r2 = [QuestionRow(category="C", option="O", question="Q1?", answer="A")]
+    result = compare_questionary_csv([], r2)
+    assert result[0].status == "only_in_2"
+    assert result[0].answer_1 == ""
+    assert result[0].answer_2 == "A"
+
+
+def test_compare_questionary_matches_by_normalized_question_ignoring_category():
+    """Category differs (e.g. embeds brand name) but the question is the same."""
+    r1 = [QuestionRow(
+        category="Application Configuration - Debit Mastercard (PRIMARY)",
+        option="O", question="What  is\nit?", answer="X",
+    )]
+    r2 = [QuestionRow(
+        category="Application Configuration - Mastercard (PRIMARY)",
+        option="O", question="What is it?", answer="X",
+    )]
+    result = compare_questionary_csv(r1, r2)
+    assert len(result) == 1
+    assert result[0].status == "identical"
+
+
+def test_export_questionary_comparison_csv():
+    rows = [
+        QuestionComparisonRow(
+            status="different", category="C", option="O", question="Q?",
+            answer_1="A", answer_2="B",
+        ),
+    ]
+    buf = io.StringIO()
+    export_questionary_comparison_csv(rows, buf)
+    text = buf.getvalue()
+    assert "status,category,option,question,answer_1,answer_2" in text
+    assert "different,C,O,Q?,A,B" in text

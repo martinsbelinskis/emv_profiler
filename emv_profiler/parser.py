@@ -468,3 +468,123 @@ def export_visa_env(
                 display_val = hex_val
         safe_val = display_val.replace("\\", "\\\\").replace('"', '\\"')
         output.write(f'{entry.var_name} = "{safe_val}"\n')
+
+
+# ── Questionary (AnsweredQuestions) CSV comparison ────────────────────────────
+
+@dataclass
+class QuestionRow:
+    category: str
+    option: str
+    question: str
+    answer: str
+
+
+@dataclass
+class QuestionComparisonRow:
+    status: str        # identical | different | only_in_1 | only_in_2
+    category: str
+    option: str
+    question: str
+    answer_1: str
+    answer_2: str
+
+
+def _normalize_question(text: str) -> str:
+    """Collapse internal whitespace/newlines so wrapped questions match reliably."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def parse_questionary_csv(path: str | Path) -> list[QuestionRow]:
+    """Parse a Mastercard "AnsweredQuestions" export CSV.
+
+    Expected columns: Category, Option, Question, Answer.
+    Encoding is auto-detected: UTF-8-with-BOM → UTF-8 → cp1252 → latin-1.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Questionary CSV not found: {path}")
+
+    raw = path.read_bytes()
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            text = raw.decode(enc)
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    reader = csv.DictReader(io.StringIO(text))
+    rows: list[QuestionRow] = []
+    for row in reader:
+        rows.append(QuestionRow(
+            category=(row.get("Category") or "").strip(),
+            option=(row.get("Option") or "").strip(),
+            question=(row.get("Question") or "").strip(),
+            answer=(row.get("Answer") or "").strip(),
+        ))
+    return rows
+
+
+def compare_questionary_csv(
+    rows_1: list[QuestionRow],
+    rows_2: list[QuestionRow],
+) -> list[QuestionComparisonRow]:
+    """Compare two parsed questionary CSVs.
+
+    Questions are matched by their normalized (whitespace-collapsed) text,
+    since the same question text is unique within a single export and is
+    stable across profile variants, whereas ``Category`` can differ (e.g.
+    it embeds the product brand name).
+    """
+    def _keyed(rows: list[QuestionRow]) -> dict[str, QuestionRow]:
+        result: dict[str, QuestionRow] = {}
+        for row in rows:
+            result[_normalize_question(row.question)] = row
+        return result
+
+    map_1 = _keyed(rows_1)
+    map_2 = _keyed(rows_2)
+    all_keys = sorted(set(map_1) | set(map_2))
+
+    result: list[QuestionComparisonRow] = []
+    for key in all_keys:
+        r1 = map_1.get(key)
+        r2 = map_2.get(key)
+        ref = r1 or r2
+        assert ref is not None
+
+        if r1 and r2:
+            result.append(QuestionComparisonRow(
+                status="different" if r1.answer != r2.answer else "identical",
+                category=ref.category,
+                option=ref.option,
+                question=ref.question,
+                answer_1=r1.answer,
+                answer_2=r2.answer,
+            ))
+        elif r1:
+            result.append(QuestionComparisonRow(
+                status="only_in_1",
+                category=ref.category,
+                option=ref.option,
+                question=ref.question,
+                answer_1=r1.answer,
+                answer_2="",
+            ))
+        else:
+            assert r2
+            result.append(QuestionComparisonRow(
+                status="only_in_2",
+                category=ref.category,
+                option=ref.option,
+                question=ref.question,
+                answer_1="",
+                answer_2=r2.answer,
+            ))
+    return result
+
+
+def export_questionary_comparison_csv(rows: list[QuestionComparisonRow], output: io.TextIOBase) -> None:
+    """Write QuestionComparisonRow list to a CSV file-like object."""
+    _write_csv(output, [f.name for f in fields(QuestionComparisonRow)],
+               [{f.name: getattr(r, f.name) for f in fields(QuestionComparisonRow)} for r in rows])
