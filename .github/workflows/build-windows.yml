@@ -19,7 +19,8 @@ jobs:
             artifact: EMV-Profiler-Windows
             exe: dist/emv_profiler.exe
             extra_deps: ""
-          - os: ubuntu-latest
+          # Pinned to an older release: PyInstaller binaries need a glibc at least as new as the build host's
+          - os: ubuntu-22.04
             artifact: EMV-Profiler-Ubuntu
             exe: dist/emv_profiler
             extra_deps: |
